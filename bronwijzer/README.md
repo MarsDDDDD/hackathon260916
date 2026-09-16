@@ -4,6 +4,19 @@ Back-office tool voor medewerkers lokale economie: zoekt letterlijke passages in
 toont status/niveau/pagina, laat de medewerker bevindingen bevestigen en maakt een conceptantwoord
 (zonder verzendknop).
 
+## Zoeken met en zonder taalmodel
+
+`Zoek passages` voert altijd eerst een lokale, reproduceerbare BM25-zoekopdracht uit op de actieve
+documentcollectie. Zodra een taalmodel is ingesteld, laat Bronwijzer dat model daarna alleen korte
+Nederlandse zoektermen voorstellen. Die termen krijgen een lager gewicht, worden lokaal gevalideerd
+en kunnen de lokale zoekopdracht verbreden; ze zijn zichtbaar in de interface en zijn nooit bronnen,
+bevindingen of citaten. Het model krijgt voor deze stap geen passage-tekst en zoekt niet zelf in de
+collectie.
+
+Daarna kan de medewerker desgewenst **Formuleer bevindingen** kiezen. Pas dan ontvangt het model
+hoogstens de geselecteerde passages. Zonder taalmodel, bij een fout, onbruikbare JSON of een
+geannuleerde zoekuitbreiding blijven de gewone lokale zoekresultaten beschikbaar.
+
 ## Snel starten
 
 ```bash
@@ -19,7 +32,7 @@ en wordt nooit naar de browser gestuurd. Via de knop rechtsboven wijzig je ze la
 `settings.json` gaat voor. Andere aanbieder? Zet `OPENAI_URL` op een ander API-adres.
 
 **Zonder server:** dubbelklik `index.html`. Zoeken, bewijs, beoordelen, concept en
-bronbeheer werken dan ook, alleen de knop "Formuleer bevindingen" valt weg.
+bronbeheer werken dan ook, alleen AI-zoektermen en de knop "Formuleer bevindingen" vallen weg.
 Wijzigingen en logboek worden in je browser bewaard (localStorage).
 
 ## Bestanden
@@ -28,7 +41,7 @@ Wijzigingen en logboek worden in je browser bewaard (localStorage).
 | --- | --- |
 | `index.html` | Opmaak van de pagina |
 | `style.css` | Kleuren (tokens bovenaan), licht/donker |
-| `app.js` | Zoeken (BM25), bewijs, bevindingen, citaatcontrole, concept, bronbeheer, logboek |
+| `app.js` | Lokale BM25-zoeking, begrensde AI-zoektermen, bewijs, bevindingen, citaatcontrole, concept, bronbeheer, logboek |
 | `corpus.js` | Passages + documentmetadata (gegenereerd) |
 | `extract_corpus.py` | Maakt `corpus.js` uit de PDF's |
 | `server.py` | Lokale server, sleutelbeheer en doorgeefluik naar de OpenAI API |
@@ -46,7 +59,7 @@ Nieuw document? Voeg een regel toe aan `DOCS` en draai het script opnieuw.
 ## Waar pas je wat aan (app.js)
 
 - `SYN` en `STOP`: synoniemen en stopwoorden voor het zoeken.
-- `search()`: rangschikking, gemeentefilter, gewicht voor historische documenten.
+- `search()`: rangschikking en gewicht voor historische documenten.
 - `renderUncert()`: welke waarschuwingen de medewerker ziet.
 - `aiDraft()`: de prompt voor het taalmodel en de JSON-vorm van het antwoord.
 - `verifyQuote()`: controle of een citaat letterlijk in de bron staat.

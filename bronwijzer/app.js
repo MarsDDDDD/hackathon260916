@@ -25,6 +25,10 @@ let results = [];            // current evidence [{chunk, score}]
 let findings = [];           // [{id,text,cites:[chunkId],quote,status,verified}]
 let focusId = null;
 let currentQuery = "";
+let queryPlanTerms = [];     // model-suggested retrieval aids, never evidence
+let searchPlanning = false;
+let searchCtl = null;
+let searchSeq = 0;
 
 function docs(){
   const base = BASE.docs.map(d=>Object.assign({}, d, overrides[d.id]||{}));
@@ -78,13 +82,21 @@ function queryTerms(q){
   for (const t of base){ out.set(stem(t),1); for (const s of (SYN[t]||[])) if(!out.has(stem(s))) out.set(stem(s),0.6); }
   return out;
 }
-function search(q, muni, inclHist){
+function retrievalTerms(q, expansions=[]){
+  const out = queryTerms(q);                                      // the officer's question stays primary
+  for (const expansion of expansions){
+    for (const [t,w] of queryTerms(expansion)){
+      if (!out.has(t)) out.set(t, Math.min(0.45, w*0.45));         // AI terms can broaden, not dominate, ranking
+    }
+  }
+  return out;
+}
+function search(q, inclHist, expansions=[]){
   if (!index) buildIndex();
-  const terms = queryTerms(q); const k1=1.3, b=0.72; const scored=[];
+  const terms = retrievalTerms(q, expansions); const k1=1.3, b=0.72; const scored=[];
   for (const {c,tf,len} of index.docsTok){
     const d = docById(c.doc); if (!d || d.active===false) continue;
     if (d.status==="historisch" && !inclHist) continue;
-    if (d.municipality && muni && d.municipality!==muni) continue;   // source boundary in retrieval layer
     let s=0;
     for (const [t,w] of terms){
       const f = tf.get(t); if(!f) continue;
@@ -96,7 +108,6 @@ function search(q, muni, inclHist){
       let hm=0; for (const [t,w] of terms) if (head.has(t)) hm+=w;
       s *= 1 + 0.35*Math.min(hm,3);                                  // heading matches the question
       if (/^definities/i.test(c.title||"")) s*=0.55;                  // definitions support, rarely answer
-      if (d.municipality && d.municipality===muni) s*=1.25;          // local rules first
       if (d.status==="historisch") s*=0.6;
       scored.push({c,score:s});
     }
@@ -143,7 +154,7 @@ const chunkById = (id)=> allChunks().find(c=>c.id===id);
 let lastTerms = [];
 function renderEvidence(){
   const box = $("#evidence");
-  if (!results.length){ box.innerHTML = '<p class="empty">Geen passages gevonden binnen deze bronnen. Controleer de gemeente, zet historische documenten aan, of voeg een bron toe.</p>'; $("#levels").innerHTML=""; return; }
+  if (!results.length){ box.innerHTML = '<p class="empty">Geen passages gevonden binnen deze bronnen. Zet historische documenten aan, controleer de vraag, of voeg een bron toe.</p>'; $("#levels").innerHTML=""; return; }
   const lv = {}; results.forEach(r=>{const d=docById(r.c.doc); lv[d.level]=(lv[d.level]||0)+1;});
   $("#levels").innerHTML = ["gemeentelijk","provinciaal","Vlaams","federaal"].map(l=>`<span class="tag ${lv[l]?"plain":"plain"}" style="${lv[l]?"":"opacity:.45"}">${l}: ${lv[l]||0}</span>`).join("");
   const top = results[0].score; const noted = new Set();
@@ -157,7 +168,7 @@ function renderEvidence(){
       <div class="sect" aria-hidden="true">${c.label&&c.label.includes("§")?"§":"¶"}</div>
       <div>
         <div class="meta"><b>${esc(d.short||d.title)}</b><span>${esc(c.label||"passage")}${c.title?" · "+esc(c.title):""}</span><span>${c.pages.length>1?`p. ${c.pages[0]}–${c.pages[c.pages.length-1]}`:"p. "+c.page}</span></div>
-        <div class="meta" style="margin-top:3px">${statusTag(d)}<span class="tag plain">${esc(d.level)}${d.municipality?" · "+esc(d.municipality):""}</span><span class="tag plain">${esc(d.date||"datum onbekend")}</span>${rel<0.35?'<span class="tag warn">zwakke overeenkomst</span>':""}</div>
+        <div class="meta" style="margin-top:3px">${statusTag(d)}<span class="tag plain">${esc(d.level)}</span><span class="tag plain">${esc(d.date||"datum onbekend")}</span>${rel<0.35?'<span class="tag warn">zwakke overeenkomst</span>':""}</div>
         <blockquote>${highlight(c.text, lastTerms, q)}</blockquote>
         <div class="acts">
           <button class="linkish" data-expand>Toon volledige passage</button>
@@ -193,7 +204,6 @@ function renderUncert(){
     if (d.status==="ongedateerd") out.push(`<b>${esc(d.short)}</b> is ongedateerd: controleer of dit de geldende versie is.`);
     if (d.type==="richtlijn") out.push(`<b>${esc(d.short)}</b> is een richtlijn, geen regelgeving.`);
     if (!d.url) out.push(`Voor <b>${esc(d.short)}</b> ontbreekt een link naar het origineel.`);
-    if (d.municipality && d.municipality!==$("#muni").value) out.push(`<b>${esc(d.short)}</b> geldt voor ${esc(d.municipality)}.`);
   }
   const unver = findings.filter(f=>f.status!=="no" && !f.verified);
   if (unver.length) out.push(`${unver.length} bevinding(en) bevatten een citaat dat niet letterlijk in de bron staat. Controleer die eerst.`);
@@ -243,7 +253,9 @@ $("#findings").addEventListener("click",e=>{
 });
 function verifyQuote(q, ids){
   if (!q) return false;
-  const n = (s)=>normWS(s).toLowerCase().replace(/[“”"']/g,"");
+  // PDF extraction often joins a list bullet to the preceding colon (":-de") while
+  // the model preserves a space (": -de"). Treat only that layout detail as neutral.
+  const n = (s)=>normWS(s).toLowerCase().replace(/[“”"']/g,"").replace(/([:;])\s*-\s*/g,"$1 - ");
   return ids.some(id=>{const c=chunkById(id); return c && n(c.text).includes(n(q));});
 }
 
@@ -262,8 +274,8 @@ function extractive(){
 let ctl = null;
 async function aiDraft(){
   if (!sample || !results.length) return;
-  const passages = results.slice(0,6).map(r=>{const d=docById(r.c.doc);return {id:r.c.id, bron:cite(r.c), status:d.status, soort:d.type, niveau:d.level, gemeente:d.municipality||"algemeen", datum:d.date, tekst:normWS(r.c.text)};});
-  const prompt = `Je helpt een medewerker lokale economie van de gemeente ${$("#muni").value||"(onbekend)"} een vraag van een ondernemer te beantwoorden.
+  const passages = results.slice(0,6).map(r=>{const d=docById(r.c.doc);return {id:r.c.id, bron:cite(r.c), status:d.status, soort:d.type, niveau:d.level, datum:d.date, tekst:normWS(r.c.text)};});
+  const prompt = `Je helpt een medewerker lokale economie een vraag van een ondernemer te beantwoorden.
 Gebruik UITSLUITEND de passages hieronder. Verzin niets. Als de passages iets niet beantwoorden, zet dat bij "onzeker".
 Regels:
 - Schrijf in eenvoudig Nederlands, per bevinding 1 à 2 zinnen.
@@ -331,28 +343,101 @@ $("#copy").onclick = async ()=>{ try{ await navigator.clipboard.writeText($("#dr
 const EX = ["Hoeveel kost een vaste standplaats op de markt?","Tot hoe laat mag mijn terras open in de winter?","Moet ik bij het FAVV geregistreerd zijn om voeding te verkopen?","Kan mijn bedrijf een provinciale innovatiesubsidie krijgen?"];
 $("#examples").innerHTML = EX.map(x=>`<button type="button">${esc(x)}</button>`).join("");
 $("#examples").addEventListener("click",e=>{ if(e.target.tagName==="BUTTON"){ $("#q").value=e.target.textContent; runSearch(); }});
-function fillMuni(){
-  const ms = [...new Set(docs().map(d=>d.municipality).filter(Boolean))].sort();
-  const cur = $("#muni").value || "Schoten";
-  $("#muni").innerHTML = ms.map(m=>`<option ${m===cur?"selected":""}>${esc(m)}</option>`).join("") + `<option value="">Andere gemeente (enkel algemene bronnen)</option>`;
+function applySearch(query, inclHist, expansions=[]){
+  const {hits, terms} = search(query, inclHist, expansions);
+  results = hits; lastTerms = terms; findings = []; focusId = null; $("#draft").value=""; $("#aiStatus").textContent="";
+  return hits;
+}
+function resultCountText(hits){ return hits.length? `${hits.length} passages gevonden.` : "Geen passages gevonden."; }
+function setDraftingAvailability(){
+  $("#draftAI").disabled = searchPlanning;
+  $("#draftX").disabled = searchPlanning;
+}
+function renderSearchPlan(){
+  const box = $("#searchPlan"); if (!box) return;
+  if (!queryPlanTerms.length){ box.hidden = true; box.innerHTML = ""; return; }
+  box.hidden = false;
+  box.innerHTML = `<b>AI-zoektermen gebruikt</b><span>Deze termen verbreden alleen de lokale zoekopdracht; ze zijn geen bevindingen of bronnen.</span><span class="search-terms">${queryPlanTerms.map(t=>`<code>${esc(t)}</code>`).join("")}</span>`;
+}
+function queryPlanPrompt(question){
+  return `Je bent uitsluitend een zoekplanner voor een afgesloten documentcollectie van een lokale overheidsdienst.
+Je zoekt NIET zelf in documenten en je geeft geen antwoord, bron, citaat, juridische conclusie of passage-id.
+Maak alleen korte Nederlandse zoektermen die een lokale trefwoordzoeker kunnen helpen om de vraag van een ondernemer terug te vinden.
+
+Regels:
+- Geef 2 tot 5 verschillende termen of korte zoekfrases (maximaal 60 tekens elk).
+- Gebruik synoniemen, administratieve of juridische termen en mogelijke documentwoorden.
+- Herhaal de volledige vraag niet en verzin geen feiten of documentnamen.
+- De oorspronkelijke vraag blijft de belangrijkste zoekopdracht; jouw termen zijn alleen aanvullend.
+- Antwoord uitsluitend als JSON: {"zoektermen":["...", "..."]}.
+
+Vraag: ${question}`;
+}
+function cleanQueryPlan(out, originalQuery){
+  if (!out || !Array.isArray(out.zoektermen)) throw new Error("Het taalmodel gaf geen bruikbare zoektermen terug.");
+  const original = new Set(tokens(originalQuery).filter(t=>!STOP.has(t)).map(stem));
+  const seen = new Set(); const cleaned = [];
+  for (const raw of out.zoektermen){
+    if (typeof raw!=="string") continue;
+    const term = raw.replace(/\s+/g," ").trim();
+    if (!term || term.length>60) continue;
+    const termTokens = tokens(term).filter(t=>!STOP.has(t));
+    if (!termTokens.length || termTokens.every(t=>original.has(stem(t)))) continue;
+    const key = term.toLocaleLowerCase("nl-BE");
+    if (seen.has(key)) continue;
+    seen.add(key); cleaned.push(term);
+    if (cleaned.length===5) break;
+  }
+  return cleaned;
+}
+async function enrichSearchWithAI(seq, question, inclHist){
+  try{
+    const out = await sample.json(queryPlanPrompt(question), {signal:searchCtl.signal, modelTier:"default"});
+    if (seq!==searchSeq) return;
+    queryPlanTerms = cleanQueryPlan(out, question);
+    if (queryPlanTerms.length){
+      const hits = applySearch(question, inclHist, queryPlanTerms);
+      $("#searchStatus").textContent = `${resultCountText(hits)} Aangevuld met ${queryPlanTerms.length} AI-zoekterm(en).`;
+    } else {
+      $("#searchStatus").textContent = `${resultCountText(results)} Het taalmodel gaf geen aanvullende zoektermen; de lokale zoekresultaten blijven staan.`;
+    }
+  }catch(e){
+    if (seq!==searchSeq) return;
+    queryPlanTerms = [];
+    const cancelled = e && (e.code==="cancelled" || e.name==="AbortError");
+    $("#searchStatus").textContent = `${resultCountText(results)} ${cancelled?"De uitbreiding met AI-zoektermen is gestopt.":"Zoeken gebeurde zonder AI-uitbreiding."}`;
+  }finally{
+    if (seq!==searchSeq) return;
+    searchPlanning = false; setDraftingAvailability(); renderAll();
+  }
 }
 function runSearch(){
   currentQuery = $("#q").value.trim(); if(!currentQuery) return;
-  const {hits, terms} = search(currentQuery, $("#muni").value, $("#inclHist").checked);
-  results = hits; lastTerms = terms; findings = []; focusId = null; $("#draft").value=""; $("#aiStatus").textContent="";
-  $("#searchStatus").textContent = hits.length? `${hits.length} passages gevonden.` : "Geen passages gevonden.";
+  const inclHist = $("#inclHist").checked;
+  const seq = ++searchSeq;
+  if (searchCtl) searchCtl.abort();
+  queryPlanTerms = [];
+  const hits = applySearch(currentQuery, inclHist);
+  const canPlan = !!(sample && typeof sample.json==="function");
+  searchPlanning = canPlan; setDraftingAvailability();
+  $("#searchStatus").textContent = canPlan
+    ? `${resultCountText(hits)} Taalmodel vertaalt de vraag naar aanvullende zoektermen…`
+    : resultCountText(hits);
   renderAll();
+  if (!canPlan) return;
+  searchCtl = new AbortController();
+  enrichSearchWithAI(seq, currentQuery, inclHist);
 }
 $("#go").onclick = runSearch;
 $("#q").addEventListener("keydown",e=>{ if(e.key==="Enter" && (e.ctrlKey||e.metaKey)) runSearch(); });
-function renderAll(){ renderEvidence(); renderFindings(); renderUncert(); }
+function renderAll(){ renderSearchPlan(); renderEvidence(); renderFindings(); renderUncert(); }
 
 /* ---------- log ---------- */
 $("#saveLog").onclick = async ()=>{
   const ok = findings.filter(f=>f.status==="ok");
   if (!ok.length){ $("#saveStatus").textContent="Bevestig eerst minstens één bevinding."; return; }
   const entry = {
-    ts: now(), who: who(), vraag: $("#q").value.trim(), gemeente: $("#muni").value,
+    ts: now(), who: who(), vraag: $("#q").value.trim(),
     bevindingen: findings.map(f=>({tekst:f.text, citaat:f.quote, status:f.status, herkomst:f.origin, citaatGecontroleerd:f.verified,
       bronnen:f.cites.map(id=>{const c=chunkById(id)||{}, d=docById(c.doc)||{}; return {passage:id, verwijzing:c.id?cite(c):id, document:d.title, versie:d.date, status:d.status, versieNr:d.rev||0};})})),
     concept: $("#draft").value
@@ -375,7 +460,7 @@ function renderSources(){
     ds.map(d=>`<tr data-doc="${esc(d.id)}">
       <td><input type="checkbox" aria-label="Actief" data-k="active" ${d.active===false?"":"checked"}></td>
       <td><b>${esc(d.title)}</b><div class="note">${esc(d.authority)}${d.file?" · "+esc(d.file):""}${d.rev?` · wijziging ${d.rev}`:""}</div></td>
-      <td>${esc(d.level)}${d.municipality?"<br>"+esc(d.municipality):""}</td>
+      <td>${esc(d.level)}</td>
       <td><select data-k="status">${["van kracht","richtlijn","ongedateerd","historisch"].map(s=>`<option ${s===d.status?"selected":""}>${s}</option>`).join("")}</select></td>
       <td><input data-k="date" value="${esc(d.date)}"></td>
       <td><input data-k="url" value="${esc(d.url)}" placeholder="https://"></td>
@@ -391,7 +476,7 @@ $("#srcTable").addEventListener("change", async e=>{
   const patch = Object.assign({}, overrides[id]||{}, {[k]:val, rev:(d.rev||0)+1});
   overrides[id] = patch;
   await store.saveOverride(id, patch, {ts:now(), who:who(), doc:d.short||d.title, change:`${k}: "${before===undefined?"":before}" → "${val}"`});
-  buildIndex(); fillMuni(); renderSources(); if (results.length) runSearch();
+  buildIndex(); renderSources(); if (results.length) runSearch();
 });
 function chunkText(docId, text){
   const lines = text.split(/\r?\n/); const out=[]; let art="", par="", buf=[];
@@ -413,10 +498,10 @@ $("#addSrc").onclick = async ()=>{
   if (url && !/^https?:\/\//.test(url)){ $("#addStatus").textContent="Een link moet beginnen met http:// of https://."; return; }
   if (text.length>200000){ $("#addStatus").textContent="Deze tekst is te lang voor één bron. Splits hem op."; return; }
   const id = "u"+Date.now().toString(36);
-  const meta = {id, title, short:title.slice(0,40), authority:$("#nAuth").value.trim(), level:$("#nLevel").value, municipality:$("#nMuni").value.trim(), type:$("#nType").value, status:$("#nStatus").value, date:$("#nDate").value.trim()||"datum onbekend", url, note:"Toegevoegd door "+who()+". Paginanummers zijn niet bekend.", pages:1};
+  const meta = {id, title, short:title.slice(0,40), authority:$("#nAuth").value.trim(), level:$("#nLevel").value, type:$("#nType").value, status:$("#nStatus").value, date:$("#nDate").value.trim()||"datum onbekend", url, note:"Toegevoegd door "+who()+". Paginanummers zijn niet bekend.", pages:1};
   const chunks = chunkText(id, text);
   await store.addSource({meta, chunks}, {ts:now(), who:who(), doc:title, change:`bron toegevoegd (${chunks.length} passages)`});
-  ["nTitle","nAuth","nMuni","nDate","nUrl","nText"].forEach(x=>$("#"+x).value="");
+  ["nTitle","nAuth","nDate","nUrl","nText"].forEach(x=>$("#"+x).value="");
   $("#addStatus").textContent = `Toegevoegd: ${chunks.length} passages.`;
 };
 
@@ -442,14 +527,14 @@ const store = {
   async addSource(src, log){
     if (db){ try{ await db.doc("sources/"+src.meta.id).set(src); await db.collection("sourcelog").add(log); return; }catch(err){ $("#addStatus").textContent="Opslaan in de gedeelde opslag lukte niet; lokaal bewaard."; } }
     added.push(src); LS.set("bw.added",added); srcLog.unshift(log); LS.set("bw.srclog",srcLog.slice(0,200));
-    buildIndex(); fillMuni(); renderSources();
+    buildIndex(); renderSources();
   }
 };
 function loadLocal(){
   overrides = LS.get("bw.overrides",{}); added = LS.get("bw.added",[]); answers = LS.get("bw.answers",[]); srcLog = LS.get("bw.srclog",[]);
 }
 function storeNote(){ $("#storeStatus").textContent = db? "Wijzigingen worden gedeeld met iedereen die deze pagina gebruikt." : "Wijzigingen worden alleen in deze browser bewaard."; }
-loadLocal(); buildIndex(); fillMuni(); storeNote(); runSearch();
+loadLocal(); buildIndex(); storeNote(); runSearch();
 
 /* ---------- taalmodel via de eigen server (zie server.py) ---------- */
 const API = window.API;
@@ -532,8 +617,8 @@ $("#openSetup").onclick = async ()=>{
     const d = await window.claude.use("db");
     if (!d) return;
     db = d; overrides = {}; added = []; answers = []; srcLog = []; storeNote();
-    db.collection("overrides").onSnapshot(snap=>{ overrides={}; snap.docs.forEach(x=>overrides[x.id]=Object.assign({},x.data())); buildIndex(); fillMuni(); if(!$("#v-src").hidden) renderSources(); renderAll(); });
-    db.collection("sources").onSnapshot(snap=>{ added = snap.docs.map(x=>JSON.parse(JSON.stringify(x.data()))); buildIndex(); fillMuni(); if(!$("#v-src").hidden) renderSources(); });
+    db.collection("overrides").onSnapshot(snap=>{ overrides={}; snap.docs.forEach(x=>overrides[x.id]=Object.assign({},x.data())); buildIndex(); if(!$("#v-src").hidden) renderSources(); renderAll(); });
+    db.collection("sources").onSnapshot(snap=>{ added = snap.docs.map(x=>JSON.parse(JSON.stringify(x.data()))); buildIndex(); if(!$("#v-src").hidden) renderSources(); });
     db.collection("answers").orderBy("ts","desc").limit(50).onSnapshot(snap=>{ answers = snap.docs.map(x=>x.data()); renderLog(); });
     db.collection("sourcelog").orderBy("ts","desc").limit(100).onSnapshot(snap=>{ srcLog = snap.docs.map(x=>x.data()); renderLog(); });
   }catch(e){ db = null; storeNote(); }
