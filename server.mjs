@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { extname, join, normalize } from "node:path";
+import { join, normalize } from "node:path";
 
 const port = Number(process.env.PORT || 4173);
 const root = process.cwd();
@@ -71,6 +71,16 @@ async function availableModels(apiKey) {
   return models;
 }
 
+function responseText(result) {
+  if (typeof result.output_text === "string" && result.output_text.trim()) return result.output_text.trim();
+  return (result.output || [])
+    .flatMap((item) => item?.content || [])
+    .filter((content) => content?.type === "output_text" && typeof content.text === "string")
+    .map((content) => content.text)
+    .join("\n")
+    .trim();
+}
+
 function sourcePacket(sources) {
   if (!Array.isArray(sources) || !sources.length) throw new Error("Er zijn geen actieve bronpassages om te analyseren.");
   return sources.slice(0, 8).map((source, index) => ({
@@ -118,7 +128,7 @@ async function handleApi(request, response, path) {
       "Je bent BronWijzer, een assistent voor een medewerker lokale economie in België.",
       "Geef een beknopt conceptantwoord in het Nederlands van maximaal 110 woorden.",
       "Gebruik uitsluitend de meegestuurde bronpassages. Voeg geen feiten, stappen, bedragen, regels of links toe die niet letterlijk of rechtstreeks uit die passages volgen.",
-      "Noem in je antwoord tussen haakjes de bronnummer(s) die een claim ondersteunen, bijvoorbeeld [Bron 1].",
+      "Zet na elke feitelijke zin de bronnummer(s) die de zin ondersteunen, bijvoorbeeld [Bron 1].",
       "Als de passages de vraag niet volledig dekken, zeg exact welk punt de medewerker nog moet controleren.",
       "Dit is geen definitieve juridische conclusie en geen bericht aan de klant.",
     ].join(" ");
@@ -126,11 +136,11 @@ async function handleApi(request, response, path) {
     const result = await openAi("/v1/responses", apiKey, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, instructions: instruction, input, store: false }),
+      body: JSON.stringify({ model, instructions: instruction, input, max_output_tokens: 700, text: { verbosity: "low" }, store: false }),
     });
-    const answer = String(result.output_text || "").trim();
+    const answer = responseText(result);
     if (!answer) return sendJson(response, 502, { error: "OpenAI gaf geen leesbaar conceptantwoord terug." });
-    return sendJson(response, 200, { answer: answer.slice(0, 3_000) });
+    return sendJson(response, 200, { answer: answer.slice(0, 3_000), responseId: result.id || null });
   }
 
   return sendJson(response, 404, { error: "Onbekende lokale API-route." });

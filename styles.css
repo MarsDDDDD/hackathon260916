@@ -127,12 +127,25 @@ textarea { display: block; width: 100%; color: var(--ink); border: 1px solid #b8
 .evidence-panel { padding: 21px; background: #fdfdfc; }
 .evidence-panel > p { color: var(--muted); font-size: 12px; margin-bottom: 15px; }
 .evidence-card { border: 1px solid var(--line); background: var(--paper); border-radius: 9px; padding: 14px; margin-bottom: 12px; }
+.evidence-card.citation-focus { animation: citation-focus 1.75s ease-out; }
+@keyframes citation-focus { 0%, 35% { box-shadow: 0 0 0 4px #e4b65d; border-color: #c9973f; } 100% { box-shadow: none; border-color: var(--line); } }
 .evidence-top { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; margin-bottom: 8px; }
 .evidence-source { color: var(--forest); font-weight: 800; font-size: 12px; }
 .evidence-location { color: var(--muted); font-size: 10px; white-space: nowrap; }
 .quote { padding: 10px 11px; margin: 0 0 9px; border-left: 2px solid #e4b65d; background: #fbf7ed; font: italic 12px/1.52 Georgia, serif; color: #344542; }
 .source-link { display: inline-block; color: var(--forest); font-size: 11px; font-weight: 800; text-decoration: none; }
 .source-link:hover { text-decoration: underline; }
+.evidence-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.source-context-toggle { color: var(--forest); background: transparent; border: 0; padding: 0; font-size: 11px; font-weight: 800; text-decoration: underline; text-decoration-color: #a5c8bb; text-underline-offset: 3px; }
+.source-context { margin-top: 12px; border: 1px solid #d7e6df; border-radius: 7px; background: #f5faf7; padding: 11px; }
+.source-context-label { color: #52746b; font-size: 9px; font-weight: 850; letter-spacing: .08em; margin-bottom: 6px; }
+.source-context p { white-space: pre-line; font: 12px/1.55 Georgia, serif; color: #334a46; margin: 0; }
+.source-context mark { background: #fee59b; color: inherit; padding: 1px 2px; border-radius: 2px; }
+.ai-proposal { margin: 0 0 18px; padding: 13px 14px; border: 1px solid #b8ddcc; border-radius: 8px; background: #f2faf6; color: #244840; font-size: 13px; }
+.ai-proposal > p:not(.finding-label) { margin: 0; }
+.ai-proposal small { display: block; margin-top: 8px; color: #57736a; font-size: 10px; }
+.citation-ref { color: #0d5a4d; background: #dff1e8; border: 1px solid #a9d2be; border-radius: 999px; padding: 1px 6px; font-size: 10px; font-weight: 850; vertical-align: 1px; }
+.citation-ref:hover { background: #cbeddb; }
 .applicability { border-top: 1px solid var(--line); margin-top: 15px; padding-top: 13px; display: grid; gap: 7px; }
 .applicability-item { display: flex; gap: 7px; color: var(--muted); font-size: 11px; }
 .applicability-item b { color: var(--ink); min-width: 74px; }

@@ -19,6 +19,7 @@ The default evidence workflow is deterministic and works without an API key. To 
 - Paste a project API key; it is sent only to the local `server.mjs` process and held only in that process's memory. It is not written to browser storage, source files, or history.
 - The local server asks OpenAI for the models available to that project and allows the officer to select one.
 - On analysis, only the customer question and the active evidence excerpts are sent to OpenAI. The original PDFs and disabled sources stay local.
+- The AI concept uses clickable labels such as `Bron 1`; they focus the matching evidence card, where the exact quoted words can be highlighted inside the surrounding source fragment.
 
 For a deployment, do not use the key-entry form. Start the server with `OPENAI_API_KEY` set by the deployment environment or a secret manager. Never put a key in the browser bundle, Git repository, or client-side storage.
 

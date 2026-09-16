@@ -147,11 +147,24 @@ async function requestAiSuggestion(question) {
   return payload.answer;
 }
 
-function evidenceCard({ title, location, quote, url, applies }) {
-  return `<article class="evidence-card">
+function highlightSourceText(context, quote) {
+  const start = context.indexOf(quote);
+  if (start === -1) return escapeHtml(context);
+  return `${escapeHtml(context.slice(0, start))}<mark>${escapeHtml(quote)}</mark>${escapeHtml(context.slice(start + quote.length))}`;
+}
+
+function formatAiSuggestion(text) {
+  return escapeHtml(text)
+    .replace(/\[Bron\s+(\d+)\]/gi, (_match, sourceNumber) => `<button type="button" class="citation-ref" data-evidence-ref="${sourceNumber}">Bron ${sourceNumber}</button>`)
+    .replace(/\n/g, "<br>");
+}
+
+function evidenceCard({ sourceIndex, title, location, quote, context, url, applies }) {
+  return `<article class="evidence-card" id="evidence-${sourceIndex}" data-evidence-card="${sourceIndex}">
     <div class="evidence-top"><span class="evidence-source">${title}</span><span class="evidence-location">${location}</span></div>
     <p class="quote">“${quote}”</p>
-    <a class="source-link" href="${url}" target="_blank" rel="noopener">Open originele passage ↗</a>
+    <div class="evidence-actions"><button type="button" class="source-context-toggle" data-toggle-context="${sourceIndex}">Bekijk gemarkeerde broncontext</button><a class="source-link" href="${url}" target="_blank" rel="noopener">Open origineel op deze pagina ↗</a></div>
+    <div class="source-context" id="context-${sourceIndex}" hidden><div class="source-context-label">BRONFRAGMENT · ${location}</div><p>${highlightSourceText(context, quote)}</p></div>
     <div class="applicability">
       <div class="applicability-item"><b>Past omdat</b><span>${applies}</span></div>
     </div>
@@ -176,14 +189,16 @@ function renderResults() {
 
   const feeFinding = feesActive ? `<div class="finding"><p class="finding-label">Kosten</p><p>Voor een abonnementhouder bedraagt de retributie €6,00 per marktdag of €78,00 per halfjaar, per ondeelbare kavel van 3 meter. Betaling gebeurt binnen 30 dagen na verzending van de factuur.</p></div>` : "";
   const feeEvidence = feesActive ? evidenceCard({
+    sourceIndex: 2,
     title: "Retributiereglement markten en kermissen",
     location: "Art. 4.1 · p. 1",
     quote: "Het tarief voor de abonnementhouder of vaste markthandelaar is: Per marktdag: 6,00 euro; Halfjaarlijks: 78,00 euro.",
+    context: "Artikel 4.1 - Openbare markten\nDe retributie wordt berekend per onverdeelbare kavel van 3 meter gevellengte op maximum 2,5 meter diepte. Het tarief voor de abonnementhouder of vaste markthandelaar is: Per marktdag: 6,00 euro; Halfjaarlijks: 78,00 euro. Voor de abonnementhouder, vast of losse markthandelaar is de retributie inclusief het gebruik van de verdeelkast elektriciteit op het openbaar domein.",
     url: feeRegulationUrl,
     applies: "gemeentelijke retributie voor abonnementhouders op de openbare markt van Schoten; opgenomen geldigheid 2026–2031."
   }) : "";
 
-  const aiProposal = aiSuggestion ? `<div class="ai-proposal"><p class="finding-label">AI-concept · ${escapeHtml(aiConfig.model || "lokaal")}</p><p>${escapeHtml(aiSuggestion)}</p><small>Dit concept is beperkt tot de passages in het bewijsvenster. Controleer elk detail vóór gebruik.</small></div>` : "";
+  const aiProposal = aiSuggestion ? `<div class="ai-proposal"><p class="finding-label">AI-concept · ${escapeHtml(aiConfig.model || "lokaal")}</p><p>${formatAiSuggestion(aiSuggestion)}</p><small>Gebruik de bronlabels om de gemarkeerde passage te openen. Controleer elk detail vóór gebruik.</small></div>` : "";
 
   container.innerHTML = `<div class="results-layout">
     <section class="answer-card panel">
@@ -207,9 +222,11 @@ function renderResults() {
       <h2>Controleer de context</h2>
       <p>Elke regel hierboven is verbonden met een passage uit de actieve bronset.</p>
       ${evidenceCard({
+        sourceIndex: 1,
         title: "Marktreglement Schoten 2024",
         location: "Art. 13 §3 · p. 5–6",
         quote: "Een onderneming die een standplaats met abonnement wenst te bekomen, dient zich kandidaat te stellen door het invullen van het aanvraagformulier op de website van de gemeente Schoten, na melding van een vacature of op elk ander tijdstip.",
+        context: "Artikel 13 - Vacature en kandidatuurstelling standplaats met abonnement\n§3. Een onderneming die een standplaats met abonnement wenst te bekomen, dient zich kandidaat te stellen door het invullen van het aanvraagformulier op de website van de gemeente Schoten, na melding van een vacature of op elk ander tijdstip. De aanvraag dient de volgende gegevens te bevatten: naam, voornaam, adres, telefoonnummer en e-mailadres; in voorkomend geval de handelsnaam; een uittreksel uit de Kruispuntbank van Ondernemingen (of ondernemingsnummer); een omschrijving van de producten of diensten; en het gevraagde aantal kavels. Bij de aanvraag dienen de voorgeschreven documenten toegevoegd te worden.",
         url: marketRegulationUrl,
         applies: "gemeentelijk reglement voor de openbare markt van Schoten; de klant vraagt een standplaats met abonnement."
       })}
@@ -251,6 +268,20 @@ Dienst lokale economie</textarea>
     renderHistory();
     toast("Concept opgeslagen. Er is niets verzonden.");
   });
+  $$("[data-toggle-context]").forEach((button) => button.addEventListener("click", () => {
+    const context = $(`#context-${button.dataset.toggleContext}`);
+    const open = context.hidden;
+    context.hidden = !open;
+    button.textContent = open ? "Verberg broncontext" : "Bekijk gemarkeerde broncontext";
+  }));
+  $$("[data-evidence-ref]").forEach((button) => button.addEventListener("click", () => {
+    const card = $(`#evidence-${button.dataset.evidenceRef}`);
+    if (!card) return;
+    card.classList.remove("citation-focus");
+    void card.offsetWidth;
+    card.classList.add("citation-focus");
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+  }));
   updateWorkflow();
 }
 
