@@ -23,6 +23,7 @@ let srcLog = [];
 let db = null, sample = null;
 let results = [];            // current evidence [{chunk, score}]
 let findings = [];           // [{id,text,cites:[chunkId],quote,status,verified}]
+let briefing = null;         // structured summary for the office worker
 let focusId = null;
 let currentQuery = "";
 let queryPlanTerms = [];     // model-suggested retrieval aids, never evidence
@@ -92,11 +93,12 @@ function retrievalTerms(q, expansions=[]){
   }
   return out;
 }
-function search(q, expansions=[]){
+function search(q, inclHist, expansions=[]){
   if (!index) buildIndex();
   const terms = retrievalTerms(q, expansions); const k1=1.3, b=0.72; const scored=[];
   for (const {c,tf,len} of index.docsTok){
     const d = docById(c.doc); if (!d || d.active===false) continue;
+    if (d.historical && !inclHist) continue;
     let s=0;
     for (const [t,w] of terms){
       const f = tf.get(t); if(!f) continue;
@@ -108,7 +110,7 @@ function search(q, expansions=[]){
       let hm=0; for (const [t,w] of terms) if (head.has(t)) hm+=w;
       s *= 1 + 0.35*Math.min(hm,3);                                  // heading matches the question
       if (/^definities/i.test(c.title||"")) s*=0.55;                  // definitions support, rarely answer
-      if (d.status==="historisch") s*=0.6;
+      if (d.historical) s*=0.6;
       scored.push({c,score:s});
     }
   }
@@ -119,12 +121,14 @@ function search(q, expansions=[]){
 /* ---------- rendering helpers ---------- */
 function statusTag(d){
   const s = d.status;
-  if (s==="te beoordelen") return '<span class="tag plain">Te beoordelen</span>';
-  if (s==="historisch") return '<span class="tag bad">Historisch</span>';
-  if (s==="ongedateerd") return '<span class="tag warn">Ongedateerd</span>';
-  if (s==="richtlijn" || d.type==="richtlijn") return '<span class="tag warn">Richtlijn, geen regelgeving</span>';
-  if (d.type==="eerder antwoord") return '<span class="tag warn">Eerder antwoord</span>';
-  return '<span class="tag ok">'+esc(s||"van kracht")+'</span>';
+  const tags = [];
+  if (d.historical) tags.push('<span class="tag warn">Historisch</span>');
+  if (s==="te beoordelen") tags.push('<span class="tag plain">Te beoordelen</span>');
+  else if (s==="ongedateerd") tags.push('<span class="tag warn">Ongedateerd</span>');
+  else if (s==="richtlijn" || d.type==="richtlijn") tags.push('<span class="tag warn">Richtlijn, geen regelgeving</span>');
+  else if (d.type==="eerder antwoord") tags.push('<span class="tag warn">Eerder antwoord</span>');
+  else tags.push('<span class="tag ok">'+esc(s||"van kracht")+'</span>');
+  return tags.join("");
 }
 function srcLink(d, page){
   if (d.url) return `<a href="${esc(d.url)}#page=${page}" target="_blank" rel="noopener">Open origineel, p. ${page}</a>`;
@@ -253,6 +257,54 @@ function verifyQuote(q, ids){
   return ids.some(id=>{const c=chunkById(id); return c && n(c.text).includes(n(q));});
 }
 
+function fallbackApplicability(cites){
+  const sourceMeta = [...new Set(cites.map(id=>(chunkById(id)||{}).doc))].map(id=>docById(id)).filter(Boolean);
+  if (!sourceMeta.length) return "Niet volledig vastgesteld: er is geen controleerbare bronpassage gekoppeld.";
+  const described = sourceMeta.map(d=>[d.municipality||"gemeente niet vermeld", d.type||"soort niet vermeld", d.date||"datum niet vermeld"].join(" · "));
+  return `Geraadpleegd en gecontroleerd: ${described.join("; ")}.`;
+}
+function makeBriefing(modelBriefing, extra=[]){
+  const fallback = findings.find(f=>f.status!=="no") || null;
+  const raw = modelBriefing && typeof modelBriefing==="object" ? modelBriefing : {};
+  const evidence = raw.bewijs && typeof raw.bewijs==="object" ? raw.bewijs : {};
+  const validIds = new Set(results.map(r=>r.c.id));
+  const cites = (evidence.bronnen||raw.bronnen||[]).filter(id=>validIds.has(id));
+  const finalCites = cites.length ? cites : (fallback ? fallback.cites : []);
+  const quote = String(evidence.citaat||raw.citaat||fallback?.quote||"");
+  briefing = {
+    finding: String(raw.bevinding||fallback?.text||""),
+    quote,
+    cites: finalCites,
+    applicability: String(raw.toepasselijkheid||fallbackApplicability(finalCites)),
+    uncertainty: [...(Array.isArray(raw.onzekerheid)?raw.onzekerheid:[]), ...extra].map(String).filter(Boolean),
+    verified: finalCites.length ? verifyQuote(quote, finalCites) : false
+  };
+}
+function renderBriefing(){
+  const box = $("#briefing"); if (!box) return;
+  if (!briefing || (!briefing.finding && !briefing.uncertainty.length)){
+    box.innerHTML = '<p class="empty">Na het zoeken verschijnt hier een korte briefing met bron, toepasselijkheid en onzekerheden.</p>';
+    return;
+  }
+  const sources = briefing.cites.map(id=>{
+    const c = chunkById(id), d = c&&docById(c.doc);
+    return c&&d ? `<li>${srcLink(d,c.page)} — ${esc(cite(c))}</li>` : "";
+  }).join("") || "<li>Geen bronpassage gekoppeld.</li>";
+  const uncertainty = briefing.uncertainty.length ? `<ul>${briefing.uncertainty.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>` : '<p>Geen aanvullende onzekerheid gemeld.</p>';
+  const verification = briefing.verified
+    ? '<span class="tag ok">Citaat letterlijk teruggevonden</span>'
+    : '<span class="tag warn">Controleer of dit citaat letterlijk in de bron staat</span>';
+  box.innerHTML = `<section class="briefing-card">
+    <h3>Vraag</h3><p>${esc(currentQuery||$("#q").value.trim())}</p>
+    <h3>Bevinding</h3><p>${esc(briefing.finding)||"<i>Geen bevinding met voldoende bronbasis.</i>"}</p>
+    <h3>Bewijs</h3><blockquote>“${esc(briefing.quote)||"Geen letterlijk citaat beschikbaar."}”</blockquote><p>${verification}</p>
+    <h3>Bron openen</h3><ul>${sources}</ul>
+    <h3>Toepasselijkheid</h3><p>${esc(briefing.applicability)}</p>
+    <h3>Onzekerheid</h3>${uncertainty}
+    <h3>Beoordeling medewerker</h3><p>Controleer de bevinding aan de hand van de bron; bevestig, corrigeer of verwerp ze voordat u de informatie gebruikt of communiceert.</p>
+  </section>`;
+}
+
 /* ---------- drafting ---------- */
 function extractive(){
   const terms = lastTerms;
@@ -262,6 +314,7 @@ function extractive(){
     for (const s of sents){ const t=tokens(s).map(stem); const sc = t.filter(x=>terms.includes(x)).length/Math.sqrt(t.length+1); if (sc>bs){bs=sc;best=s;} }
     return {id:"x"+i+Date.now(), text:"", cites:[r.c.id], quote:best.slice(0,500), status:"edit", verified:true, origin:"extract"};
   });
+  makeBriefing(null, ["Het taalmodel was niet beschikbaar; deze briefing is samengesteld uit letterlijke kernzinnen."]);
   $("#aiStatus").textContent = "Kernzinnen overgenomen. Schrijf bij elke bevinding kort wat die betekent voor de ondernemer.";
   renderAll();
 }
@@ -274,10 +327,13 @@ Gebruik UITSLUITEND de passages hieronder. Verzin niets. Als de passages iets ni
 Regels:
 - Schrijf in eenvoudig Nederlands, per bevinding 1 à 2 zinnen.
 - Elke bevinding verwijst naar 1 of meer passage-id's uit de lijst.
-- "citaat" is een LETTERLIJK stuk tekst (max. 40 woorden) uit de eerste passage die je noemt, exact gekopieerd.
+- "citaat" is een aaneengesloten, LETTERLIJK stuk tekst (max. 40 woorden) uit de eerste passage die je noemt, exact gekopieerd. Gebruik geen ellipsen, weglatingstekens of samenvattingen.
 - Controleer of een expliciet genoemde gemeente/regio in de vraag overeenkomt met de gemeente, titel en inhoud van de passages. Als die niet overeenkomt, geef dan GEEN bevindingen en leg bij "onzeker" uit dat er geen passende regionale bron is.
 - Maximaal 5 bevindingen.
-Antwoord met alleen JSON: {"bevindingen":[{"tekst":"...","bronnen":["id"],"citaat":"..."}],"onzeker":["..."]}
+- Maak ook precies één "medewerkerbriefing" voor de medewerker lokale economie. Die vat uitsluitend de bronnen samen in: "bevinding", "bewijs" met "citaat" en "bronnen", "toepasselijkheid" en "onzekerheid".
+- "toepasselijkheid" noemt alleen wat uit de passagemetadata blijkt: gemeente/regio, soort aanvraag, documentversie/datum en wat is gecontroleerd. Ontbreekt iets, vermeld dat als onzeker in plaats van het in te vullen.
+- Gebruik voor het bewijs van de medewerkerbriefing opnieuw een aaneengesloten, letterlijk citaat zonder ellipsen.
+Antwoord met alleen JSON: {"bevindingen":[{"tekst":"...","bronnen":["id"],"citaat":"..."}],"onzeker":["..."],"medewerkerbriefing":{"bevinding":"...","bewijs":{"citaat":"...","bronnen":["id"]},"toepasselijkheid":"...","onzekerheid":["..."]}}
 
 VRAAG: ${$("#q").value.trim()}
 
@@ -294,6 +350,7 @@ ${JSON.stringify(passages,null,1)}`;
       return {id:"a"+i+Date.now(), text:String(b.tekst||""), cites, quote:String(b.citaat||""), status: cites.length? "new":"edit", verified: cites.length? verifyQuote(String(b.citaat||""), cites):false, origin:"model"};
     }).filter(f=>f.cites.length);
     const extra = (out.onzeker||[]).map(String);
+    makeBriefing(out.medewerkerbriefing, extra);
     $("#aiStatus").innerHTML = extra.length? "Het model meldt als onzeker: "+extra.map(esc).join(" · ") : "Klaar. Controleer elke bevinding tegen het bewijs.";
   }catch(e){
     const m = {cancelled:"Gestopt.", not_granted:"Er is nog geen taalmodel ingesteld. Gebruik de letterlijke kernzinnen of stel er een in.", rate_limited:"Te veel verzoeken of tegoed op. Probeer het over een minuut opnieuw.", invalid_json:"Het antwoord had geen bruikbaar formaat. Probeer opnieuw."};
@@ -316,16 +373,12 @@ function buildDraft(){
     const c = chunkById(f.cites[0]);
     return `${f.text?f.text+" ":""}${c?`Volgens ${cite(c)}:`:""} “${f.quote}”`;
   });
-  const srcs = [...new Set(ok.flatMap(f=>f.cites))].map(id=>{const c=chunkById(id), d=docById(c.doc);return `- ${cite(c)}${d.url?` – ${d.url}#page=${c.page}`:""}`;});
   $("#draft").value =
 `Beste [naam],
 
 Bedankt voor uw vraag: "${q}"
 
 ${lines.join("\n\n")}
-
-Bronnen:
-${srcs.join("\n")}
 
 Met vriendelijke groeten,
 
@@ -336,9 +389,9 @@ $("#rebuild").onclick = buildDraft;
 $("#copy").onclick = async ()=>{ try{ await navigator.clipboard.writeText($("#draft").value); $("#saveStatus").textContent="Gekopieerd."; }catch(e){ $("#draft").select(); $("#saveStatus").textContent="Selecteer en kopieer met Ctrl+C."; } };
 
 /* ---------- search wiring ---------- */
-function applySearch(query, expansions=[]){
-  const {hits, terms} = search(query, expansions);
-  results = hits; lastTerms = terms; findings = []; focusId = null; $("#draft").value=""; $("#aiStatus").textContent="";
+function applySearch(query, inclHist, expansions=[]){
+  const {hits, terms} = search(query, inclHist, expansions);
+  results = hits; lastTerms = terms; findings = []; briefing = null; focusId = null; $("#draft").value=""; $("#aiStatus").textContent="";
   return hits;
 }
 function resultCountText(hits){ return hits.length? `${hits.length} passages gevonden.` : "Geen passages gevonden."; }
@@ -388,7 +441,7 @@ async function enrichSearchWithAI(seq, question, draftAfter){
     if (seq!==searchSeq) return;
     queryPlanTerms = cleanQueryPlan(out, question);
     if (queryPlanTerms.length){
-      const hits = applySearch(question, queryPlanTerms);
+      const hits = applySearch(question, $("#inclHist").checked, queryPlanTerms);
       $("#searchStatus").textContent = `${resultCountText(hits)} Aangevuld met ${queryPlanTerms.length} AI-zoekterm(en).`;
     } else {
       $("#searchStatus").textContent = `${resultCountText(results)} Het taalmodel gaf geen aanvullende zoektermen; de lokale zoekresultaten blijven staan.`;
@@ -409,7 +462,7 @@ function runSearch(){
   const seq = ++searchSeq;
   if (searchCtl) searchCtl.abort();
   queryPlanTerms = [];
-  const hits = applySearch(currentQuery);
+  const hits = applySearch(currentQuery, $("#inclHist").checked);
   const canPlan = !!(sample && typeof sample.json==="function");
   searchPlanning = canPlan; setDraftingAvailability();
   $("#searchStatus").textContent = canPlan
@@ -422,7 +475,7 @@ function runSearch(){
 }
 $("#go").onclick = runSearch;
 $("#q").addEventListener("keydown",e=>{ if(e.key==="Enter" && (e.ctrlKey||e.metaKey)) runSearch(); });
-function renderAll(){ renderSearchPlan(); renderEvidence(); renderFindings(); renderUncert(); }
+function renderAll(){ renderSearchPlan(); renderEvidence(); renderFindings(); renderBriefing(); renderUncert(); }
 
 /* ---------- log ---------- */
 $("#saveLog").onclick = async ()=>{
@@ -445,15 +498,16 @@ function renderLog(){
 }
 
 /* ---------- sources view ---------- */
-const FIELDS = ["status","date","url","note"];
+const FIELDS = ["historical","status","date","url","note"];
 function renderSources(){
   const ds = docs();
-  $("#srcTable").innerHTML = `<tr><th>Actief</th><th>Document</th><th>Niveau</th><th>Status</th><th>Datum / versie</th><th>Link naar origineel</th><th>Opmerking</th><th>Passages</th></tr>` +
+  $("#srcTable").innerHTML = `<tr><th>Actief</th><th>Document</th><th>Niveau</th><th>Historisch</th><th>Status</th><th>Datum / versie</th><th>Link naar origineel</th><th>Opmerking</th><th>Passages</th></tr>` +
     ds.map(d=>`<tr data-doc="${esc(d.id)}">
       <td><input type="checkbox" aria-label="Actief" data-k="active" ${d.active===false?"":"checked"}></td>
       <td><b>${esc(d.title)}</b><div class="note">${esc(d.authority)}${d.file?" · "+esc(d.file):""}${d.rev?` · wijziging ${d.rev}`:""}</div></td>
       <td>${esc(d.level)}</td>
-      <td><select data-k="status">${["te beoordelen","van kracht","richtlijn","ongedateerd","historisch"].map(s=>`<option ${s===d.status?"selected":""}>${s}</option>`).join("")}</select></td>
+      <td><input type="checkbox" aria-label="Historisch" data-k="historical" ${d.historical?"checked":""}></td>
+      <td><select data-k="status">${["te beoordelen","van kracht","richtlijn","ongedateerd"].map(s=>`<option ${s===d.status?"selected":""}>${s}</option>`).join("")}</select></td>
       <td><input data-k="date" value="${esc(d.date)}"></td>
       <td><input data-k="url" value="${esc(d.url)}" placeholder="https://"></td>
       <td><textarea data-k="note">${esc(d.note)}</textarea></td>
@@ -462,7 +516,7 @@ function renderSources(){
 $("#srcTable").addEventListener("change", async e=>{
   const tr = e.target.closest("tr[data-doc]"); const k = e.target.dataset.k; if(!tr||!k) return;
   const id = tr.dataset.doc; const d = docById(id);
-  const val = k==="active"? e.target.checked : e.target.value.trim();
+  const val = k==="active" || k==="historical" ? e.target.checked : e.target.value.trim();
   if (k==="url" && val && !/^https?:\/\//.test(val)){ $("#storeStatus").textContent="Een link moet beginnen met http:// of https://."; return; }
   const before = d[k];
   const patch = Object.assign({}, overrides[id]||{}, {[k]:val, rev:(d.rev||0)+1});
@@ -490,7 +544,7 @@ $("#addSrc").onclick = async ()=>{
   if (url && !/^https?:\/\//.test(url)){ $("#addStatus").textContent="Een link moet beginnen met http:// of https://."; return; }
   if (text.length>200000){ $("#addStatus").textContent="Deze tekst is te lang voor één bron. Splits hem op."; return; }
   const id = "u"+Date.now().toString(36);
-  const meta = {id, title, short:title.slice(0,40), authority:$("#nAuth").value.trim(), level:$("#nLevel").value, type:$("#nType").value, status:$("#nStatus").value, date:$("#nDate").value.trim()||"datum onbekend", url, note:"Toegevoegd door "+who()+". Paginanummers zijn niet bekend.", pages:1};
+  const meta = {id, title, short:title.slice(0,40), authority:$("#nAuth").value.trim(), level:$("#nLevel").value, type:$("#nType").value, status:$("#nStatus").value, historical:false, date:$("#nDate").value.trim()||"datum onbekend", url, note:"Toegevoegd door "+who()+". Paginanummers zijn niet bekend.", pages:1};
   const chunks = chunkText(id, text);
   await store.addSource({meta, chunks}, {ts:now(), who:who(), doc:title, change:`bron toegevoegd (${chunks.length} passages)`});
   ["nTitle","nAuth","nDate","nUrl","nText"].forEach(x=>$("#"+x).value="");
@@ -505,15 +559,16 @@ $("#uploadSrc").onclick = async ()=>{
   if(!files.length){ $("#uploadStatus").textContent="Kies eerst minstens één PDF."; return; }
   if(!API){ $("#uploadStatus").textContent="Start Bronwijzer via server.py om PDF's te uploaden."; return; }
   $("#uploadSrc").disabled=true;
-  let done=0;
+  let done=0, skipped=[];
   try{
     for(const file of files){
       if(file.size>20*1024*1024) throw new Error(`${file.name} is groter dan 20 MB.`);
       $("#uploadStatus").textContent=`Uploaden en indexeren: ${file.name} (${done+1}/${files.length})…`;
-      await api("/sources/upload",{file:{name:file.name,data:await fileData(file)},who:who()}); done++;
+      try{ await api("/sources/upload",{file:{name:file.name,data:await fileData(file)},who:who()}); done++; }
+      catch(e){ if(/al geüpload/.test(e.message||"")){ skipped.push(file.name); continue; } throw e; }
     }
     await loadSharedCollection(); buildIndex(); renderSources();
-    $("#pdfFiles").value=""; $("#uploadStatus").textContent=`${done} PDF${done===1?"":"'s"} geüpload en geïndexeerd.`;
+    $("#pdfFiles").value=""; $("#uploadStatus").textContent=`${done} PDF${done===1?"":"'s"} geüpload en geïndexeerd.${skipped.length?` ${skipped.length} dubbel bestand overgeslagen.`:""}`;
   }catch(e){ $("#uploadStatus").textContent=`Na ${done} bestand(en): ${e.message||"upload mislukt."}`; }
   finally{ $("#uploadSrc").disabled=false; }
 };
@@ -634,6 +689,9 @@ $("#openSetup").onclick = async ()=>{
 })();
 
 (async ()=>{
+  // Bij een lokale Bronwijzer-server zijn collectie, logboek en modelinstelling
+  // uitsluitend serverdata. Gebruik geen eventuele oude browser-DB als tweede bron.
+  if (API) return;
   if (!window.claude || !window.claude.use) return;
   try{
     const s = await window.claude.use("sample");

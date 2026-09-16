@@ -58,6 +58,7 @@
     <label class="q" for="q">Vraag van de ondernemer</label>
     <textarea id="q" placeholder="Typ de vraag van de ondernemer…"></textarea>
     <div class="row">
+      <span class="scope"><label><input type="checkbox" id="inclHist"> Historische bestanden meenemen</label></span>
       <button class="btn" id="go">Beantwoord met bronnen</button>
       <span class="status" id="searchStatus" aria-live="polite"></span>
     </div>
@@ -71,6 +72,11 @@
         <p class="status" id="aiStatus" aria-live="polite"></p>
         <div id="uncert"></div>
         <div id="findings"><p class="empty">Stel een vraag en kies “Beantwoord met bronnen”.</p></div>
+      </div>
+      <div class="panel briefing">
+        <h2>Samenvatting voor de medewerker</h2>
+        <p class="sub">Een korte, brongebonden briefing. Gebruik ze om de bevindingen te beoordelen; het is geen automatisch verstuurd antwoord.</p>
+        <div id="briefing"><p class="empty">Na het zoeken verschijnt hier een korte briefing met bron, toepasselijkheid en onzekerheden.</p></div>
       </div>
       <div class="panel draft">
         <h2>Conceptantwoord</h2>
@@ -114,7 +120,7 @@
       <label>Uitgever<input id="nAuth"></label>
       <label>Niveau<select id="nLevel"><option>gemeentelijk</option><option>provinciaal</option><option>Vlaams</option><option>federaal</option></select></label>
       <label>Soort<select id="nType"><option value="regelgeving">regelgeving</option><option value="richtlijn">richtlijn</option><option value="eerder antwoord">eerder antwoord</option></select></label>
-      <label>Status<select id="nStatus"><option>van kracht</option><option>richtlijn</option><option>ongedateerd</option><option>historisch</option></select></label>
+      <label>Status<select id="nStatus"><option>van kracht</option><option>richtlijn</option><option>ongedateerd</option></select></label>
       <label>Datum / versie<input id="nDate"></label>
       <label>Link naar origineel<input id="nUrl" placeholder="https://"></label>
     </div>
