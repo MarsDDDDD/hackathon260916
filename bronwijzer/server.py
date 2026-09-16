@@ -69,7 +69,8 @@ def call_openai(path, key, body=None, timeout=120):
         try: return error.code, json.loads(error.read().decode() or "{}")
         except ValueError: return error.code, {}
     except Exception as error:
-        print("Verbinding mislukt:", error); return 0, {}
+        print("Verbinding mislukt:", error)
+        return 0, {"error": {"message": "Geen verbinding met de OpenAI API. Controleer de internetverbinding, firewall/proxy en API-toegang."}}
 
 
 def chat_models(key):
@@ -166,8 +167,9 @@ class H(http.server.SimpleHTTPRequestHandler):
         disk_name = doc_id + "-" + name; os.makedirs(UPLOAD_DIR, exist_ok=True)
         with open(os.path.join(UPLOAD_DIR, disk_name), "wb") as f: f.write(raw)
         stem = os.path.splitext(name)[0].replace("HISTORICAL-", "").replace("-", " "); historical = name.upper().startswith("HISTORICAL-")
+        municipality = "Schoten" if "schoten" in name.lower() else ""
         officer = str((body or {}).get("who") or "onbekende medewerker")
-        source = {"meta": {"id": doc_id, "title": stem, "short": stem[:40], "authority": "te beoordelen", "level": "te beoordelen", "type": "onbekend", "status": "historisch" if historical else "te beoordelen", "date": "geüpload " + date.today().isoformat(), "url": "/data/uploads/" + urllib.parse.quote(disk_name), "note": "Geüpload door " + officer + ". Controleer brongegevens en status.", "pages": pages, "active": True, "rev": 0, "file": name}, "chunks": chunks}
+        source = {"meta": {"id": doc_id, "title": stem, "short": stem[:40], "authority": "te beoordelen", "municipality": municipality, "level": "te beoordelen", "type": "onbekend", "status": "historisch" if historical else "te beoordelen", "date": "geüpload " + date.today().isoformat(), "url": "/data/uploads/" + urllib.parse.quote(disk_name), "note": "Geüpload door " + officer + ". Controleer brongegevens en status.", "pages": pages, "active": True, "rev": 0, "file": name}, "chunks": chunks}
         data = load_collection(); data["sources"].append(source); data["sourceLog"].insert(0, {"ts": timestamp(), "who": officer, "doc": stem, "change": f"PDF geüpload ({len(chunks)} passages)"}); save_collection(data)
         return self.reply(201, {"source": source})
 

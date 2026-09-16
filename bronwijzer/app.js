@@ -29,6 +29,13 @@ let queryPlanTerms = [];     // model-suggested retrieval aids, never evidence
 let searchPlanning = false;
 let searchCtl = null;
 let searchSeq = 0;
+const LOCAL_MUNICIPALITY = "Schoten";
+const OTHER_MUNICIPALITIES = ["antwerpen","brussel","gent","mechelen","turnhout","leuven","hasselt","brugge","kortrijk","aalst","genk","sint-niklaas"];
+
+function requestedForeignMunicipality(query){
+  const words = new Set(tokens(query));
+  return OTHER_MUNICIPALITIES.find(place=>words.has(place)) || null;
+}
 
 function docs(){
   const base = BASE.docs.map(d=>Object.assign({}, d, overrides[d.id]||{}));
@@ -276,7 +283,7 @@ function extractive(){
 let ctl = null;
 async function aiDraft(){
   if (!sample || !results.length) return;
-  const passages = results.slice(0,6).map(r=>{const d=docById(r.c.doc);return {id:r.c.id, bron:cite(r.c), status:d.status, soort:d.type, niveau:d.level, datum:d.date, tekst:normWS(r.c.text)};});
+  const passages = results.slice(0,6).map(r=>{const d=docById(r.c.doc);return {id:r.c.id, bron:cite(r.c), gemeente:d.municipality||"niet vermeld", status:d.status, soort:d.type, niveau:d.level, datum:d.date, tekst:normWS(r.c.text)};});
   const prompt = `Je helpt een medewerker lokale economie een vraag van een ondernemer te beantwoorden.
 Gebruik UITSLUITEND de passages hieronder. Verzin niets. Als de passages iets niet beantwoorden, zet dat bij "onzeker".
 Regels:
@@ -284,6 +291,7 @@ Regels:
 - Elke bevinding verwijst naar 1 of meer passage-id's uit de lijst.
 - "citaat" is een LETTERLIJK stuk tekst (max. 40 woorden) uit de eerste passage die je noemt, exact gekopieerd.
 - Historische of ongedateerde passages of richtlijnen mag je alleen gebruiken als je dat in de bevinding zegt.
+- Gebruik geen gemeentelijke passage voor een andere gemeente dan de gemeente die in de vraag staat. Meld dat als onzeker.
 - Maximaal 5 bevindingen.
 Antwoord met alleen JSON: {"bevindingen":[{"tekst":"...","bronnen":["id"],"citaat":"..."}],"onzeker":["..."]}
 
@@ -305,7 +313,11 @@ ${JSON.stringify(passages,null,1)}`;
     $("#aiStatus").innerHTML = extra.length? "Het model meldt als onzeker: "+extra.map(esc).join(" · ") : "Klaar. Controleer elke bevinding tegen het bewijs.";
   }catch(e){
     const m = {cancelled:"Gestopt.", not_granted:"Er is nog geen taalmodel ingesteld. Gebruik de letterlijke kernzinnen of stel er een in.", rate_limited:"Te veel verzoeken of tegoed op. Probeer het over een minuut opnieuw.", invalid_json:"Het antwoord had geen bruikbaar formaat. Probeer opnieuw."};
-    $("#aiStatus").textContent = (e&&e.message) || m[e&&e.code] || "Opstellen mislukt. Gebruik de letterlijke kernzinnen of probeer opnieuw.";
+    const reason = (e&&e.message) || m[e&&e.code] || "Opstellen mislukt.";
+    if (e&&e.code!=="cancelled" && results.length){
+      extractive();
+      $("#aiStatus").textContent = `${reason} Er zijn daarom controleerbare kernzinnen uit de gevonden passages klaargezet; bevestig ze eerst.`;
+    } else $("#aiStatus").textContent = reason;
   }finally{
     $("#draftAI").disabled = false; $("#stopAI").hidden = true; renderAll();
   }
@@ -419,6 +431,13 @@ function runSearch(){
   const seq = ++searchSeq;
   if (searchCtl) searchCtl.abort();
   queryPlanTerms = [];
+  const otherMunicipality = requestedForeignMunicipality(currentQuery);
+  if (otherMunicipality){
+    results=[]; findings=[]; focusId=null; lastTerms=[]; $("#draft").value=""; $("#aiStatus").textContent="";
+    searchPlanning=false; setDraftingAvailability();
+    $("#searchStatus").textContent=`Geen antwoord: deze collectie is ingericht voor ${LOCAL_MUNICIPALITY}, niet voor ${otherMunicipality}. Voeg eerst bronnen voor die gemeente toe.`;
+    renderAll(); return;
+  }
   const hits = applySearch(currentQuery, inclHist);
   const canPlan = !!(sample && typeof sample.json==="function");
   searchPlanning = canPlan; setDraftingAvailability();
