@@ -188,7 +188,7 @@ class H(http.server.SimpleHTTPRequestHandler):
         municipality = "Schoten" if "schoten" in name.lower() else ""
         officer = str((body or {}).get("who") or "onbekende medewerker")
         source = {"meta": {"id": doc_id, "title": stem, "short": stem[:40], "authority": "officiële bron", "municipality": municipality, "level": "officieel", "type": "regelgeving", "status": "van kracht", "date": "geüpload " + date.today().isoformat(), "url": "/data/uploads/" + urllib.parse.quote(disk_name), "note": "Geüpload door " + officer + ".", "pages": pages, "active": True, "rev": 0, "file": name}, "chunks": chunks}
-        data = load_collection(); data["sources"].append(source); data["sourceLog"].insert(0, {"ts": timestamp(), "who": officer, "doc": stem, "change": f"PDF toegevoegd aan de collectie, opgedeeld in {len(chunks)} passages."}); save_collection(data)
+        data = load_collection(); data["sources"].append(source); data["sourceLog"].insert(0, {"ts": timestamp(), "who": officer, "doc": stem, "change": f"PDF geüpload ({len(chunks)} passages)"}); save_collection(data)
         return self.reply(201, {"source": source})
 
     def add_text_source(self):
@@ -197,7 +197,7 @@ class H(http.server.SimpleHTTPRequestHandler):
         data = load_collection(); data["sources"].append(source); data["sourceLog"].insert(0, (body or {}).get("log") or {}); save_collection(data); return self.reply(201, {"source": source})
 
     def override_source(self):
-        body = self.read_json(); doc_id, patch = (body or {}).get("id"), (body or {}).get("patch", {}); allowed = {"active", "status", "date", "url", "note", "rev", "authority", "level", "type"}
+        body = self.read_json(); doc_id, patch = (body or {}).get("id"), (body or {}).get("patch", {}); allowed = {"active", "status", "date", "url", "note", "rev"}
         if not doc_id or not isinstance(patch, dict): return self.reply(400, {"error": "Ongeldige bronwijziging."})
         data = load_collection()
         for source in data["sources"]:

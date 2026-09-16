@@ -155,18 +155,9 @@ const chunkById = (id)=> allChunks().find(c=>c.id===id);
 let lastTerms = [];
 function renderEvidence(){
   const box = $("#evidence");
-  if (!results.length){
-    box.innerHTML = currentQuery
-      ? '<p class="empty">Geen passages gevonden binnen deze bronnen. Controleer de vraag of voeg een passende bron toe.</p>'
-      : '<p class="empty">Nog geen zoekopdracht. Stel hierboven een vraag van een ondernemer.</p>';
-    $("#levels").innerHTML=""; return;
-  }
-  // Toon de niveaus die de collectie echt gebruikt; de vier bestuursniveaus alleen
-  // zodra minstens één document zo geclassificeerd is (anders vier lege nullen).
-  const lv = {}; results.forEach(r=>{const d=docById(r.c.doc)||{}; if(d.level) lv[d.level]=(lv[d.level]||0)+1;});
-  const classified = docs().some(d=>BESTUURSNIVEAUS.includes(d.level));
-  const shown = classified ? [...new Set([...BESTUURSNIVEAUS, ...Object.keys(lv)])] : Object.keys(lv);
-  $("#levels").innerHTML = shown.map(l=>`<span class="tag plain" style="${lv[l]?"":"opacity:.45"}">${esc(l)}: ${lv[l]||0}</span>`).join("");
+  if (!results.length){ box.innerHTML = '<p class="empty">Geen passages gevonden binnen deze bronnen. Controleer de vraag of voeg een passende bron toe.</p>'; $("#levels").innerHTML=""; return; }
+  const lv = {}; results.forEach(r=>{const d=docById(r.c.doc); lv[d.level]=(lv[d.level]||0)+1;});
+  $("#levels").innerHTML = ["gemeentelijk","provinciaal","Vlaams","federaal"].map(l=>`<span class="tag ${lv[l]?"plain":"plain"}" style="${lv[l]?"":"opacity:.45"}">${l}: ${lv[l]||0}</span>`).join("");
   const top = results[0].score; const noted = new Set();
   box.innerHTML = results.map(r=>{
     const c=r.c, d=docById(c.doc);
@@ -210,23 +201,10 @@ function renderUncert(){
   const consider = usedDocs.size ? [...usedDocs] : [...new Set(results.map(r=>r.c.doc))];
   for (const id of consider){
     const d = docById(id); if(!d) continue;
-    if (d.status==="historisch") out.push(`<b>${esc(d.short)}</b> is historisch: geen bewijs van de huidige regels.`);
-    if (d.status==="ongedateerd") out.push(`<b>${esc(d.short)}</b> is ongedateerd: controleer of dit de geldende versie is.`);
-    if (d.status==="te beoordelen") out.push(`<b>${esc(d.short)}</b> is nog niet beoordeeld: de brongegevens zijn niet gecontroleerd.`);
-    if (d.type==="richtlijn") out.push(`<b>${esc(d.short)}</b> is een richtlijn, geen regelgeving.`);
-    if (d.level==="te beoordelen") out.push(`Voor <b>${esc(d.short)}</b> is het bestuursniveau nog niet ingevuld.`);
-    if (!d.url) out.push(`Voor <b>${esc(d.short)}</b> ontbreekt een link naar het origineel.`);
   }
   const unver = findings.filter(f=>f.status!=="no" && !f.verified);
   if (unver.length) out.push(`${unver.length} bevinding(en) bevatten een citaat dat niet letterlijk in de bron staat. Controleer die eerst.`);
-  // Alleen zinvol zodra de dienst documenten per bestuursniveau classificeert.
-  if (docs().some(d=>BESTUURSNIVEAUS.includes(d.level))){
-    const lv = new Set(results.map(r=>(docById(r.c.doc)||{}).level));
-    const missing = BESTUURSNIVEAUS.filter(l=>!lv.has(l));
-    if (missing.length) out.push(`Geen passages gevonden op niveau: ${missing.join(", ")}. Dat kan betekenen dat de collectie daar onvolledig is, niet dat er geen regels zijn.`);
-  }
-  if (results[0] && results[0].score<3) out.push("Alle passages scoren laag. Mogelijk behandelt de collectie deze vraag niet.");
-  $("#uncert").innerHTML = out.length? `<div class="warnbox"><b>Onzekerheid en toepasselijkheid</b><ul>${[...new Set(out)].map(x=>"<li>"+x+"</li>").join("")}</ul></div>`:"";
+  $("#uncert").innerHTML = out.length? `<div class="warnbox"><b>Onzekerheid en toepasselijkheid</b><ul>${out.map(x=>"<li>"+x+"</li>").join("")}</ul></div>`:"";
 }
 
 /* ---------- findings ---------- */
@@ -297,7 +275,6 @@ Regels:
 - Schrijf in eenvoudig Nederlands, per bevinding 1 à 2 zinnen.
 - Elke bevinding verwijst naar 1 of meer passage-id's uit de lijst.
 - "citaat" is een LETTERLIJK stuk tekst (max. 40 woorden) uit de eerste passage die je noemt, exact gekopieerd.
-- Kopieer één aaneengesloten stuk tekst. Laat NOOIT woorden weg met puntjes (... of …), voeg geen losse stukken samen en verander geen enkel woord. Een citaat dat niet woord voor woord in de passage staat, wordt afgekeurd.
 - Controleer of een expliciet genoemde gemeente/regio in de vraag overeenkomt met de gemeente, titel en inhoud van de passages. Als die niet overeenkomt, geef dan GEEN bevindingen en leg bij "onzeker" uit dat er geen passende regionale bron is.
 - Maximaal 5 bevindingen.
 Antwoord met alleen JSON: {"bevindingen":[{"tekst":"...","bronnen":["id"],"citaat":"..."}],"onzeker":["..."]}
@@ -468,52 +445,29 @@ function renderLog(){
 }
 
 /* ---------- sources view ---------- */
-const BESTUURSNIVEAUS = ["gemeentelijk","provinciaal","Vlaams","federaal"];
-const LEVELS = ["officieel","te beoordelen", ...BESTUURSNIVEAUS];
-const TYPES  = ["onbekend","regelgeving","richtlijn","eerder antwoord"];
-const STATUSES = ["te beoordelen","van kracht","richtlijn","ongedateerd","historisch"];
-const opts = (list, cur)=>list.map(s=>`<option ${s===cur?"selected":""}>${esc(s)}</option>`).join("");
+const FIELDS = ["status","date","url","note"];
 function renderSources(){
   const ds = docs();
-  $("#srcTable").innerHTML = `<tr><th>Actief</th><th>Document</th><th>Uitgever</th><th>Niveau</th><th>Soort</th><th>Status</th><th>Datum / versie</th><th>Link naar origineel</th><th>Opmerking</th><th>Passages</th></tr>` +
+  $("#srcTable").innerHTML = `<tr><th>Actief</th><th>Document</th><th>Niveau</th><th>Status</th><th>Datum / versie</th><th>Link naar origineel</th><th>Opmerking</th><th>Passages</th></tr>` +
     ds.map(d=>`<tr data-doc="${esc(d.id)}">
       <td><input type="checkbox" aria-label="Actief" data-k="active" ${d.active===false?"":"checked"}></td>
-      <td><b>${esc(d.title)}</b><div class="note">${d.file?esc(d.file):""}${d.rev?` · wijziging ${d.rev}`:""}</div></td>
-      <td><input data-k="authority" value="${esc(d.authority)}"></td>
-      <td><select data-k="level">${opts(LEVELS, d.level)}</select></td>
-      <td><select data-k="type">${opts(TYPES, d.type)}</select></td>
-      <td><select data-k="status">${opts(STATUSES, d.status)}</select></td>
+      <td><b>${esc(d.title)}</b><div class="note">${esc(d.authority)}${d.file?" · "+esc(d.file):""}${d.rev?` · wijziging ${d.rev}`:""}</div></td>
+      <td>${esc(d.level)}</td>
+      <td><select data-k="status">${["te beoordelen","van kracht","richtlijn","ongedateerd","historisch"].map(s=>`<option ${s===d.status?"selected":""}>${s}</option>`).join("")}</select></td>
       <td><input data-k="date" value="${esc(d.date)}"></td>
       <td><input data-k="url" value="${esc(d.url)}" placeholder="https://"></td>
       <td><textarea data-k="note">${esc(d.note)}</textarea></td>
       <td>${allChunks().filter(c=>c.doc===d.id).length}</td></tr>`).join("");
 }
-/* Beschrijft een bronwijziging in gewone taal, voor het logboek van de medewerker. */
-const VELDNAAM = {status:"De status", level:"Het bestuursniveau", type:"Het soort document",
-                  authority:"De uitgever", date:"De datum of versie"};
-function beschrijfWijziging(veld, voor, na){
-  if (veld==="active") return na ? "Bron weer in gebruik genomen: telt weer mee bij het zoeken."
-                                 : "Bron buiten gebruik gesteld: telt niet meer mee bij het zoeken.";
-  if (veld==="note")   return na ? "Opmerking bij de bron aangepast." : "Opmerking bij de bron gewist.";
-  if (veld==="url"){
-    if (!na)  return "Link naar het origineel verwijderd.";
-    if (!voor) return "Link naar het origineel toegevoegd.";
-    return "Link naar het origineel gewijzigd.";
-  }
-  const naam = VELDNAAM[veld] || "Het veld " + veld;
-  if (!voor) return `${naam} is ingevuld: “${na}”.`;
-  if (!na)   return `${naam} is gewist (was “${voor}”).`;
-  return `${naam} is gewijzigd van “${voor}” naar “${na}”.`;
-}
 $("#srcTable").addEventListener("change", async e=>{
   const tr = e.target.closest("tr[data-doc]"); const k = e.target.dataset.k; if(!tr||!k) return;
   const id = tr.dataset.doc; const d = docById(id);
   const val = k==="active"? e.target.checked : e.target.value.trim();
-  if (k==="url" && val && !/^(https?:\/\/|\/data\/uploads\/)/.test(val)){ $("#storeStatus").textContent="Een link moet beginnen met http:// of https://."; return; }
+  if (k==="url" && val && !/^https?:\/\//.test(val)){ $("#storeStatus").textContent="Een link moet beginnen met http:// of https://."; return; }
   const before = d[k];
   const patch = Object.assign({}, overrides[id]||{}, {[k]:val, rev:(d.rev||0)+1});
   overrides[id] = patch;
-  await store.saveOverride(id, patch, {ts:now(), who:who(), doc:d.short||d.title, change: beschrijfWijziging(k, before===undefined?"":before, val)});
+  await store.saveOverride(id, patch, {ts:now(), who:who(), doc:d.short||d.title, change:`${k}: "${before===undefined?"":before}" → "${val}"`});
   buildIndex(); renderSources(); if (results.length) runSearch();
 });
 function chunkText(docId, text){
@@ -538,7 +492,7 @@ $("#addSrc").onclick = async ()=>{
   const id = "u"+Date.now().toString(36);
   const meta = {id, title, short:title.slice(0,40), authority:$("#nAuth").value.trim(), level:$("#nLevel").value, type:$("#nType").value, status:$("#nStatus").value, date:$("#nDate").value.trim()||"datum onbekend", url, note:"Toegevoegd door "+who()+". Paginanummers zijn niet bekend.", pages:1};
   const chunks = chunkText(id, text);
-  await store.addSource({meta, chunks}, {ts:now(), who:who(), doc:title, change:`Bron toegevoegd als tekst, opgedeeld in ${chunks.length} passages.`});
+  await store.addSource({meta, chunks}, {ts:now(), who:who(), doc:title, change:`bron toegevoegd (${chunks.length} passages)`});
   ["nTitle","nAuth","nDate","nUrl","nText"].forEach(x=>$("#"+x).value="");
   $("#addStatus").textContent = `Toegevoegd: ${chunks.length} passages.`;
 };
