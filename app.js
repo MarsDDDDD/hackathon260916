@@ -28,6 +28,8 @@ let sources = structuredClone(defaultSources);
 let history = [];
 let analysisFinished = false;
 let reviewed = false;
+let aiSuggestion = "";
+const aiConfig = { connected: false, model: null, source: null };
 let toastTimer;
 
 const $ = (selector) => document.querySelector(selector);
@@ -98,6 +100,53 @@ function updateWorkflow() {
   $$(".workflow-line").forEach((line, index) => line.classList.toggle("done", (index === 0 && analysisFinished) || (index === 1 && reviewed)));
 }
 
+function updateAiInterface() {
+  const status = $("#aiConnectionStatus");
+  const connectButton = $("#connectAiButton");
+  const disconnectButton = $("#disconnectAiButton");
+  if (aiConfig.connected) {
+    status.textContent = `Verbonden · ${aiConfig.model}`;
+    status.className = "status-pill good";
+    connectButton.textContent = "Modellen vernieuwen";
+    disconnectButton.disabled = false;
+  } else {
+    status.textContent = "Demo zonder AI";
+    status.className = "status-pill caution";
+    connectButton.textContent = "Beschikbare modellen ophalen";
+    disconnectButton.disabled = true;
+  }
+}
+
+function activeEvidenceForAi() {
+  const evidence = [];
+  if (sources.find((source) => source.id === "market")?.active) {
+    evidence.push({
+      title: "Marktreglement Schoten 2024",
+      location: "Art. 13 §3 · p. 5–6",
+      text: "Een onderneming die een standplaats met abonnement wenst te bekomen, dient zich kandidaat te stellen door het invullen van het aanvraagformulier op de website van de gemeente Schoten, na melding van een vacature of op elk ander tijdstip. De aanvraag bevat naam en contactgegevens, KBO-uittreksel of ondernemingsnummer, producten of diensten en aantal kavels. De opgesomde bewijsstukken worden toegevoegd.",
+    });
+  }
+  if (sources.find((source) => source.id === "fees")?.active) {
+    evidence.push({
+      title: "Retributiereglement openbare markten en kermissen 2026–2031",
+      location: "Art. 4.1 en 6 · p. 1–2",
+      text: "Het tarief voor de abonnementhouder of vaste markthandelaar is per marktdag 6,00 euro en halfjaarlijks 78,00 euro. De betaling dient te gebeuren binnen 30 dagen na verzending van de factuur.",
+    });
+  }
+  return evidence;
+}
+
+async function requestAiSuggestion(question) {
+  const response = await fetch("/api/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, model: aiConfig.model, sources: activeEvidenceForAi() }),
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || "De OpenAI-aanvraag kon niet worden uitgevoerd.");
+  return payload.answer;
+}
+
 function evidenceCard({ title, location, quote, url, applies }) {
   return `<article class="evidence-card">
     <div class="evidence-top"><span class="evidence-source">${title}</span><span class="evidence-location">${location}</span></div>
@@ -134,10 +183,13 @@ function renderResults() {
     applies: "gemeentelijke retributie voor abonnementhouders op de openbare markt van Schoten; opgenomen geldigheid 2026–2031."
   }) : "";
 
+  const aiProposal = aiSuggestion ? `<div class="ai-proposal"><p class="finding-label">AI-concept · ${escapeHtml(aiConfig.model || "lokaal")}</p><p>${escapeHtml(aiSuggestion)}</p><small>Dit concept is beperkt tot de passages in het bewijsvenster. Controleer elk detail vóór gebruik.</small></div>` : "";
+
   container.innerHTML = `<div class="results-layout">
     <section class="answer-card panel">
       <div class="answer-header"><div><p class="eyebrow">Voorgestelde bevinding</p><h2>Een aanvraag kan via het formulier van de gemeente Schoten.</h2></div><span class="status-pill good">Brononderbouwd</span></div>
       <p class="finding-intro">Voor een <b>vaste standplaats per abonnement</b> kan de ondernemer zich kandidaat stellen na een vacature of op elk ander moment. De aanvraag loopt via het formulier op de website van de gemeente.</p>
+      ${aiProposal}
       <div class="finding-list">
         <div class="finding"><p class="finding-label">Aanvraag</p><p>Vul het aanvraagformulier in en vermeld onder meer identiteits- en contactgegevens, KBO-uittreksel of ondernemingsnummer, aangeboden producten of diensten en het aantal gewenste kavels.</p></div>
         <div class="finding"><p class="finding-label">Bijlagen</p><p>Voeg de opgesomde bewijsstukken toe, zoals KBO-inschrijving, verzekeringsattesten en - wanneer van toepassing - FAVV-, elektriciteits-, gas- en brandblusattesten.</p></div>
@@ -222,6 +274,7 @@ function resetDemo() {
   history = [];
   analysisFinished = false;
   reviewed = false;
+  aiSuggestion = "";
   $("#questionInput").value = "Ik wil een vaste standplaats op de markt in Schoten. Hoe dien ik een aanvraag in?";
   renderSources();
   renderHistory();
@@ -239,7 +292,7 @@ $("#analyzeButton").addEventListener("click", () => {
   }
   button.disabled = true;
   button.innerHTML = "<span aria-hidden=\"true\">⋯</span> Bronnen controleren";
-  setTimeout(() => {
+  const completeAnalysis = () => {
     analysisFinished = true;
     reviewed = false;
     button.disabled = false;
@@ -247,7 +300,21 @@ $("#analyzeButton").addEventListener("click", () => {
     renderResults();
     $("#resultsSection").scrollIntoView({ behavior: "smooth", block: "start" });
     toast("Analyse klaar. Controleer de onderbouwing vóór gebruik.");
-  }, 720);
+  };
+  aiSuggestion = "";
+  if (!aiConfig.connected) {
+    setTimeout(completeAnalysis, 720);
+    return;
+  }
+  button.innerHTML = "<span aria-hidden=\"true\">⋯</span> AI gebruikt actieve passages";
+  requestAiSuggestion(question).then((answer) => {
+    aiSuggestion = answer;
+    completeAnalysis();
+  }).catch((error) => {
+    button.disabled = false;
+    button.innerHTML = "<span aria-hidden=\"true\">✦</span> Analyseer binnen deze bronset";
+    toast(error.message);
+  });
 });
 
 $$(".nav-item").forEach((button) => button.addEventListener("click", () => showView(button.dataset.view)));
@@ -275,7 +342,66 @@ $("#openAbout").addEventListener("click", () => $("#aboutDialog").showModal());
 $("#closeAbout").addEventListener("click", () => $("#aboutDialog").close());
 $("#closeAboutButton").addEventListener("click", () => $("#aboutDialog").close());
 
+$("#toggleKeyVisibility").addEventListener("click", () => {
+  const field = $("#apiKeyInput");
+  const visible = field.type === "text";
+  field.type = visible ? "password" : "text";
+  $("#toggleKeyVisibility").textContent = visible ? "Toon" : "Verberg";
+});
+
+$("#connectAiButton").addEventListener("click", async () => {
+  const button = $("#connectAiButton");
+  const key = $("#apiKeyInput").value.trim();
+  button.disabled = true;
+  button.textContent = "Project controleren…";
+  try {
+    const response = await fetch("/api/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(key ? { apiKey: key } : {}),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Verbinding mislukt.");
+    const select = $("#modelSelect");
+    select.innerHTML = payload.models.map((model) => `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`).join("");
+    select.disabled = false;
+    select.value = payload.defaultModel;
+    aiConfig.connected = true;
+    aiConfig.model = payload.defaultModel;
+    aiConfig.source = payload.source;
+    $("#apiKeyInput").value = "";
+    $("#modelHelp").textContent = `${payload.models.length} beschikbare tekstmodellen geladen. De geselecteerde keuze wordt alleen in deze browsersessie bijgehouden.`;
+    updateAiInterface();
+    toast(`OpenAI verbonden via ${payload.source === "environment" ? "serveromgeving" : "lokaal servergeheugen"}.`);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+    updateAiInterface();
+  }
+});
+
+$("#modelSelect").addEventListener("change", (event) => {
+  aiConfig.model = event.target.value;
+  updateAiInterface();
+  toast(`Model ingesteld op ${aiConfig.model}.`);
+});
+
+$("#disconnectAiButton").addEventListener("click", async () => {
+  try { await fetch("/api/disconnect", { method: "POST" }); } catch { /* The local demo stays usable without an AI connection. */ }
+  aiConfig.connected = false;
+  aiConfig.model = null;
+  aiConfig.source = null;
+  const select = $("#modelSelect");
+  select.innerHTML = "<option>Verbind eerst een OpenAI-project</option>";
+  select.disabled = true;
+  $("#modelHelp").textContent = "BronWijzer vraagt de actuele modellenlijst op via de lokale server. Een modelkeuze geldt alleen voor deze browsersessie.";
+  updateAiInterface();
+  toast("Lokale AI-verbinding gewist. De brononderbouwde demo blijft beschikbaar.");
+});
+
 renderSources();
 renderHistory();
 renderResults();
 updateWorkflow();
+updateAiInterface();

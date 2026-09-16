@@ -25,6 +25,9 @@
           <button class="nav-item" data-view="history">
             <span class="nav-icon">◷</span><span>Geschiedenis</span>
           </button>
+          <button class="nav-item" data-view="ai-settings">
+            <span class="nav-icon">⌘</span><span>AI-instellingen</span>
+          </button>
         </nav>
 
         <div class="sidebar-bottom">
@@ -135,6 +138,41 @@
             <div><p class="eyebrow">Controleerbaarheid</p><h1 id="history-title">Antwoordgeschiedenis</h1><p class="lede">Elke bewaarde beoordeling houdt de vraag, gebruikte bronnen en beslissing van de medewerker samen.</p></div>
           </div>
           <section class="panel history-panel" id="historyList"></section>
+        </section>
+
+        <section class="view" id="view-ai-settings" aria-labelledby="ai-settings-title">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">Lokale integratie</p>
+              <h1 id="ai-settings-title">AI-instellingen</h1>
+              <p class="lede">Kies een model dat voor uw OpenAI-project beschikbaar is. De browser praat nooit rechtstreeks met OpenAI.</p>
+            </div>
+          </div>
+
+          <div class="settings-grid">
+            <section class="panel settings-card">
+              <div class="panel-heading"><div><p class="eyebrow">OpenAI-verbinding</p><h2>Verbind deze lokale demo</h2></div><span class="status-pill caution" id="aiConnectionStatus">Demo zonder AI</span></div>
+              <p class="settings-copy">Voer voor deze lokale hackathondemo een projectsleutel in. Die gaat uitsluitend naar de lokale server op deze computer, blijft alleen in het servergeheugen en wordt niet opgeslagen in de browser, bestanden of geschiedenis.</p>
+              <label for="apiKeyInput">OpenAI API-sleutel</label>
+              <div class="key-row"><input type="password" id="apiKeyInput" autocomplete="off" spellcheck="false" placeholder="sk-…" /><button class="secondary-button" id="toggleKeyVisibility" aria-label="Sleutel tonen">Toon</button></div>
+              <p class="field-help">In productie: stel <code>OPENAI_API_KEY</code> in op de server of gebruik een secret manager. Deel de sleutel nooit met eindgebruikers.</p>
+              <div class="settings-actions"><button class="primary-button" id="connectAiButton">Beschikbare modellen ophalen</button><button class="outline-button" id="disconnectAiButton" disabled>Verbinding wissen</button></div>
+            </section>
+
+            <section class="panel settings-card model-card">
+              <div class="panel-heading"><div><p class="eyebrow">Model voor beantwoording</p><h2>Kies uit uw beschikbare modellen</h2></div></div>
+              <label for="modelSelect">OpenAI-model</label>
+              <select id="modelSelect" disabled><option>Verbind eerst een OpenAI-project</option></select>
+              <p class="field-help" id="modelHelp">BronWijzer vraagt de actuele modellenlijst op via de lokale server. Een modelkeuze geldt alleen voor deze browsersessie.</p>
+              <div class="model-explainer"><span>⌁</span><p><b>Aanbevolen voor dit prototype:</b> een snel, kostenefficiënt tekstmodel. Het model schrijft een voorstel; de bronpassages en de menselijke beoordeling blijven verplicht.</p></div>
+            </section>
+          </div>
+
+          <section class="panel data-flow-card">
+            <p class="eyebrow">Wat verlaat deze computer als u analyseert?</p>
+            <div class="data-flow"><div><span>1</span><b>Klantvraag</b><small>uw ingevoerde tekst</small></div><i>→</i><div><span>2</span><b>Actieve passages</b><small>alleen de geselecteerde bewijsstukken</small></div><i>→</i><div><span>3</span><b>Lokale server</b><small>voegt instructies en modelkeuze toe</small></div><i>→</i><div><span>4</span><b>OpenAI API</b><small>maakt een conceptvoorstel</small></div></div>
+            <p class="data-note">Lokale documenten, uitgeschakelde bronnen, API-sleutels en antwoordgeschiedenis worden niet automatisch geüpload.</p>
+          </section>
         </section>
       </main>
     </div>
