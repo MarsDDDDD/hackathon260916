@@ -24,6 +24,7 @@ UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 COLLECTION = os.path.join(DATA_DIR, "collection.json")
 API = os.environ.get("OPENAI_URL", "https://api.openai.com/v1")
 MAX_UPLOAD = 20 * 1024 * 1024
+LEVELS = {"gemeentelijk", "provinciaal", "Vlaams", "federaal"}
 SKIP = ("embedding", "tts", "whisper", "transcribe", "audio", "realtime", "image", "dall-e", "moderation", "instruct", "codex")
 
 
@@ -52,10 +53,6 @@ def load_collection():
         meta = source.get("meta", {})
         if meta.get("status") == "te beoordelen":
             meta["status"] = "van kracht"; changed = True
-        # Bestanden worden door de dienst zelf aangeleverd: behandel ze als
-        # officiële bronnen, niet als onbeoordeelde invoer.
-        if meta.get("level") == "te beoordelen":
-            meta["level"] = "officieel"; changed = True
         note = meta.get("note", "")
         if " Controleer brongegevens en status." in note:
             meta["note"] = note.replace(" Controleer brongegevens en status.", "")
@@ -176,7 +173,9 @@ class H(http.server.SimpleHTTPRequestHandler):
 
     def upload_source(self):
         body = self.read_json(MAX_UPLOAD * 2); file = (body or {}).get("file", {}); name, encoded = safe_filename(file.get("name", "")), file.get("data", "")
+        level = (body or {}).get("level")
         if not name.lower().endswith(".pdf"): return self.reply(400, {"error": "Upload alleen PDF-bestanden."})
+        if level not in LEVELS: return self.reply(400, {"error": "Kies een geldig niveau voor de PDF."})
         try: raw = base64.b64decode(encoded, validate=True)
         except (ValueError, TypeError): return self.reply(400, {"error": "Het uploadbestand kon niet worden gelezen."})
         if not raw.startswith(b"%PDF") or len(raw) > MAX_UPLOAD: return self.reply(400, {"error": "De PDF is ongeldig of groter dan 20 MB."})
@@ -195,18 +194,20 @@ class H(http.server.SimpleHTTPRequestHandler):
         municipality = "Schoten" if "schoten" in name.lower() else ""
         historical = name.upper().startswith("HISTORICAL-")
         officer = str((body or {}).get("who") or "onbekende medewerker")
-        source = {"meta": {"id": doc_id, "title": stem, "short": stem[:40], "authority": "officiële bron", "municipality": municipality, "level": "officieel", "type": "regelgeving", "status": "van kracht", "historical": historical, "sha256": sha256, "date": "geüpload " + date.today().isoformat(), "url": "/data/uploads/" + urllib.parse.quote(disk_name), "note": "Geüpload door " + officer + ".", "pages": pages, "active": True, "rev": 0, "file": name}, "chunks": chunks}
-        data["sources"].append(source); data["sourceLog"].insert(0, {"ts": timestamp(), "who": officer, "doc": stem, "change": f"PDF geüpload ({len(chunks)} passages)"}); save_collection(data)
+        source = {"meta": {"id": doc_id, "title": stem, "short": stem[:40], "authority": "", "municipality": municipality, "level": level, "type": "regelgeving", "status": "van kracht", "historical": historical, "sha256": sha256, "date": "geüpload " + date.today().isoformat(), "url": "/data/uploads/" + urllib.parse.quote(disk_name), "note": "Geüpload door " + officer + ".", "pages": pages, "active": True, "rev": 0, "file": name}, "chunks": chunks}
+        data["sources"].append(source); data["sourceLog"].insert(0, {"ts": timestamp(), "who": officer, "doc": stem, "change": f"PDF geüpload ({level}, {len(chunks)} passages)"}); save_collection(data)
         return self.reply(201, {"source": source})
 
     def add_text_source(self):
         body = self.read_json(); source = (body or {}).get("source")
         if not isinstance(source, dict) or not source.get("meta") or not source.get("chunks"): return self.reply(400, {"error": "Ongeldige bron."})
+        if source["meta"].get("level") not in LEVELS: return self.reply(400, {"error": "Kies een geldig niveau."})
         data = load_collection(); data["sources"].append(source); data["sourceLog"].insert(0, (body or {}).get("log") or {}); save_collection(data); return self.reply(201, {"source": source})
 
     def override_source(self):
-        body = self.read_json(); doc_id, patch = (body or {}).get("id"), (body or {}).get("patch", {}); allowed = {"active", "historical", "status", "date", "url", "note", "rev"}
+        body = self.read_json(); doc_id, patch = (body or {}).get("id"), (body or {}).get("patch", {}); allowed = {"active", "historical", "level", "status", "date", "url", "note", "rev"}
         if not doc_id or not isinstance(patch, dict): return self.reply(400, {"error": "Ongeldige bronwijziging."})
+        if "level" in patch and patch["level"] not in LEVELS: return self.reply(400, {"error": "Kies een geldig niveau."})
         data = load_collection()
         for source in data["sources"]:
             if source.get("meta", {}).get("id") == doc_id:

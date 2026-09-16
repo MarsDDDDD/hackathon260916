@@ -31,6 +31,7 @@ let searchPlanning = false;
 let drafting = false;
 let searchCtl = null;
 let searchSeq = 0;
+const LEVELS = ["gemeentelijk", "provinciaal", "Vlaams", "federaal"];
 
 function docs(){
   const base = BASE.docs.map(d=>Object.assign({}, d, overrides[d.id]||{}));
@@ -511,9 +512,10 @@ function renderLog(){
 }
 
 /* ---------- sources view ---------- */
-const FIELDS = ["historical","status","date","url","note"];
+const FIELDS = ["level","historical","status","date","url","note"];
 function sourceChangeDescription(field, before, after){
   if (field === "active") return after ? "De bron is ingeschakeld." : "De bron is uitgeschakeld.";
+  if (field === "level") return `Niveau gewijzigd van “${before || "niet ingedeeld"}” naar “${after}”.`;
   if (field === "historical") return after ? "De bron is als historisch gemarkeerd." : "De bron is niet langer als historisch gemarkeerd.";
   if (field === "status") return `Status gewijzigd van “${before || "niet ingevuld"}” naar “${after || "niet ingevuld"}”.`;
   if (field === "date") return `Datum of versie gewijzigd van “${before || "niet ingevuld"}” naar “${after || "niet ingevuld"}”.`;
@@ -526,8 +528,8 @@ function renderSources(){
   $("#srcTable").innerHTML = `<tr><th>Actief</th><th>Document</th><th>Niveau</th><th>Historisch</th><th>Status</th><th>Datum / versie</th><th>Link naar origineel</th><th>Opmerking</th><th>Passages</th><th>Actie</th></tr>` +
     ds.map(d=>`<tr data-doc="${esc(d.id)}">
       <td><input type="checkbox" aria-label="Actief" data-k="active" ${d.active===false?"":"checked"}></td>
-      <td><b>${esc(d.title)}</b><div class="note">${esc(d.authority)}${d.file?" · "+esc(d.file):""}${d.rev?` · wijziging ${d.rev}`:""}</div></td>
-      <td>${esc(d.level)}</td>
+      <td><b>${esc(d.title)}</b><div class="note">${d.authority && d.authority!=="officiële bron"?esc(d.authority):""}${d.file?(d.authority && d.authority!=="officiële bron"?" · ":"")+esc(d.file):""}${d.rev?` · wijziging ${d.rev}`:""}</div></td>
+      <td><select aria-label="Niveau" data-k="level"><option value="" disabled ${LEVELS.includes(d.level)?"":"selected"}>Kies niveau</option>${LEVELS.map(level=>`<option value="${level}" ${level===d.level?"selected":""}>${level}</option>`).join("")}</select></td>
       <td><input type="checkbox" aria-label="Historisch" data-k="historical" ${d.historical?"checked":""}></td>
       <td><select data-k="status">${["te beoordelen","van kracht","richtlijn","ongedateerd"].map(s=>`<option ${s===d.status?"selected":""}>${s}</option>`).join("")}</select></td>
       <td><input data-k="date" value="${esc(d.date)}"></td>
@@ -540,6 +542,7 @@ $("#srcTable").addEventListener("change", async e=>{
   const tr = e.target.closest("tr[data-doc]"); const k = e.target.dataset.k; if(!tr||!k) return;
   const id = tr.dataset.doc; const d = docById(id);
   const val = k==="active" || k==="historical" ? e.target.checked : e.target.value.trim();
+  if (k === "level" && !LEVELS.includes(val)){ $("#storeStatus").textContent="Kies een geldig niveau."; return; }
   if (k==="url" && val && !/^https?:\/\//.test(val)){ $("#storeStatus").textContent="Een link moet beginnen met http:// of https://."; return; }
   const before = d[k];
   const patch = Object.assign({}, overrides[id]||{}, {[k]:val, rev:(d.rev||0)+1});
@@ -597,6 +600,8 @@ function fileData(file){
 $("#uploadSrc").onclick = async ()=>{
   const files=[...$("#pdfFiles").files];
   if(!files.length){ $("#uploadStatus").textContent="Kies eerst minstens één PDF."; return; }
+  const level = $("#uploadLevel").value;
+  if(!LEVELS.includes(level)){ $("#uploadStatus").textContent="Kies het niveau voor deze PDF's."; return; }
   if(!API){ $("#uploadStatus").textContent="Start Bronwijzer via server.py om PDF's te uploaden."; return; }
   $("#uploadSrc").disabled=true;
   let done=0, skipped=[];
@@ -604,11 +609,11 @@ $("#uploadSrc").onclick = async ()=>{
     for(const file of files){
       if(file.size>20*1024*1024) throw new Error(`${file.name} is groter dan 20 MB.`);
       $("#uploadStatus").textContent=`Uploaden en indexeren: ${file.name} (${done+1}/${files.length})…`;
-      try{ await api("/sources/upload",{file:{name:file.name,data:await fileData(file)},who:who()}); done++; }
+      try{ await api("/sources/upload",{file:{name:file.name,data:await fileData(file)},level,who:who()}); done++; }
       catch(e){ if(/al geüpload/.test(e.message||"")){ skipped.push(file.name); continue; } throw e; }
     }
     await loadSharedCollection(); buildIndex(); renderSources();
-    $("#pdfFiles").value=""; $("#uploadStatus").textContent=`${done} PDF${done===1?"":"'s"} geüpload en geïndexeerd.${skipped.length?` ${skipped.length} dubbel bestand overgeslagen.`:""}`;
+    $("#pdfFiles").value=""; $("#uploadLevel").value=""; $("#uploadStatus").textContent=`${done} PDF${done===1?"":"'s"} geüpload en geïndexeerd.${skipped.length?` ${skipped.length} dubbel bestand overgeslagen.`:""}`;
   }catch(e){ $("#uploadStatus").textContent=`Na ${done} bestand(en): ${e.message||"upload mislukt."}`; }
   finally{ $("#uploadSrc").disabled=false; }
 };

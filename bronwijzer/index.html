@@ -108,8 +108,9 @@
   </div>
   <div class="panel big">
     <h2>PDF's uploaden</h2>
-    <p class="sub">Kies één of meer doorzoekbare PDF's. De dienst uploadt hier officiële bronnen; Bronwijzer bewaart de originele bestanden en indexeert hun tekst op de server.</p>
+    <p class="sub">Kies één of meer doorzoekbare PDF's en geef het bestuursniveau aan. Bronwijzer bewaart de originele bestanden en indexeert hun tekst op de server.</p>
     <label class="upload" for="pdfFiles">PDF-bestanden<input id="pdfFiles" type="file" accept="application/pdf,.pdf" multiple></label>
+    <label>Niveau<select id="uploadLevel" required><option value="" selected disabled>Kies een niveau</option><option value="gemeentelijk">gemeentelijk</option><option value="provinciaal">provinciaal</option><option value="Vlaams">Vlaams</option><option value="federaal">federaal</option></select></label>
     <div class="row"><button class="btn" id="uploadSrc" type="button">Geselecteerde PDF's uploaden</button><span class="status" id="uploadStatus" aria-live="polite"></span></div>
   </div>
   <div class="panel big">
