@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bronwijzer lokale economie</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">Bronwijzer lokale economie<small>Antwoorden met controleerbare bronnen · prototype PROV-AI, challenge 2</small></div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-view="v-ask">Vraag beantwoorden</button>
+    <button role="tab" aria-selected="false" data-view="v-src">Bronnen beheren</button>
+    <button role="tab" aria-selected="false" data-view="v-log">Logboek</button>
+  </nav>
+  <div class="who"><label for="who">Medewerker</label><input id="who" placeholder="uw naam"></div>
+</header>
+<main>
+<section id="v-ask" class="view">
+  <div class="ask">
+    <label class="q" for="q">Vraag van de ondernemer</label>
+    <textarea id="q">Ik wil een vaste standplaats op de markt in Schoten. Hoe dien ik een aanvraag in?</textarea>
+    <div class="row chips" id="examples"></div>
+    <div class="row">
+      <span class="scope"><label for="muni">Gemeente</label> <select id="muni"></select></span>
+      <span class="scope"><label><input type="checkbox" id="inclHist"> historische documenten meenemen</label></span>
+      <button class="btn" id="go">Zoek passages</button>
+      <span class="status" id="searchStatus" aria-live="polite"></span>
+    </div>
+  </div>
+  <div class="grid">
+    <div>
+      <div class="panel">
+        <h2>Bevindingen</h2>
+        <p class="sub">Elke bevinding verwijst naar een letterlijke passage. Bevestig, pas aan of verwerp ze voordat u iets communiceert.</p>
+        <div class="row" style="margin-top:0">
+          <button class="btn" id="draftAI" hidden>Formuleer bevindingen met Claude</button>
+          <button class="btn ghost" id="draftX">Neem letterlijke kernzinnen over</button>
+          <button class="btn ghost small" id="stopAI" hidden>Stop</button>
+        </div>
+        <p class="status" id="aiStatus" aria-live="polite"></p>
+        <div id="uncert"></div>
+        <div id="findings"><p class="empty">Zoek eerst passages. Daarna kunt u bevindingen laten opstellen of zelf passages als bevinding overnemen.</p></div>
+      </div>
+      <div class="panel draft">
+        <h2>Conceptantwoord</h2>
+        <p class="sub">Bevat alleen bevestigde bevindingen. Dit hulpmiddel verstuurt nooit zelf iets: u kopieert de tekst naar uw eigen mailprogramma.</p>
+        <textarea id="draft" placeholder="Bevestig minstens één bevinding om een concept te maken."></textarea>
+        <div class="row">
+          <button class="btn ghost" id="rebuild">Concept opnieuw opbouwen</button>
+          <button class="btn ghost" id="copy">Kopieer tekst</button>
+          <button class="btn" id="saveLog">Goedkeuren en vastleggen in logboek</button>
+          <span class="status" id="saveStatus" aria-live="polite"></span>
+        </div>
+      </div>
+    </div>
+    <aside class="panel evidence" aria-label="Bewijs">
+      <h2>Bewijs</h2>
+      <p class="sub" id="evSub">Gevonden passages, met document, artikel, pagina en status.</p>
+      <div id="levels" class="levels"></div>
+      <div id="evidence"><p class="empty">Nog geen zoekopdracht.</p></div>
+    </aside>
+  </div>
+</section>
+
+<section id="v-src" class="view" hidden>
+  <div class="panel">
+    <h2>Documentcollectie</h2>
+    <p class="sub">Pas status, datum of link aan, of zet een bron uit. Wijzigingen gelden meteen voor nieuwe zoekopdrachten en worden in het logboek bewaard.</p>
+    <p class="status" id="storeStatus"></p>
+    <div class="tablewrap"><table id="srcTable"></table></div>
+  </div>
+  <div class="panel big">
+    <h2>Bron toevoegen</h2>
+    <p class="sub">Plak de tekst van een reglement of richtlijn. Artikels en paragrafen (§) worden automatisch herkend. Controleer daarna de passages via een zoekopdracht.</p>
+    <div class="form2">
+      <label>Titel<input id="nTitle"></label>
+      <label>Uitgever<input id="nAuth"></label>
+      <label>Niveau<select id="nLevel"><option>gemeentelijk</option><option>provinciaal</option><option>Vlaams</option><option>federaal</option></select></label>
+      <label>Gemeente (leeg = algemeen)<input id="nMuni"></label>
+      <label>Soort<select id="nType"><option value="regelgeving">regelgeving</option><option value="richtlijn">richtlijn</option><option value="eerder antwoord">eerder antwoord</option></select></label>
+      <label>Status<select id="nStatus"><option>van kracht</option><option>richtlijn</option><option>ongedateerd</option><option>historisch</option></select></label>
+      <label>Datum / versie<input id="nDate"></label>
+      <label>Link naar origineel<input id="nUrl" placeholder="https://"></label>
+    </div>
+    <textarea id="nText" placeholder="Artikel 1 – …"></textarea>
+    <div class="row"><button class="btn" id="addSrc">Bron toevoegen</button><span class="status" id="addStatus" aria-live="polite"></span></div>
+  </div>
+</section>
+
+<section id="v-log" class="view log" hidden>
+  <div class="panel">
+    <h2>Goedgekeurde antwoorden</h2>
+    <p class="sub">Per antwoord: vraag, gebruikte passages met documentversie, beoordeling en tekst.</p>
+    <div id="answers"><p class="empty">Nog niets vastgelegd.</p></div>
+  </div>
+  <div class="panel">
+    <h2>Wijzigingen aan bronnen</h2>
+    <div id="srclog"><p class="empty">Nog geen wijzigingen.</p></div>
+  </div>
+</section>
+</main>
+<!-- Instellingen: zet LLM_ENDPOINT op "/api/ask" als je server.py gebruikt -->
+<script>window.LLM_ENDPOINT = (location.protocol.startsWith("http") ? "/api/ask" : "");</script>
+<script src="corpus.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
