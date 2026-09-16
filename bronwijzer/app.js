@@ -499,6 +499,15 @@ function renderLog(){
 
 /* ---------- sources view ---------- */
 const FIELDS = ["historical","status","date","url","note"];
+function sourceChangeDescription(field, before, after){
+  if (field === "active") return after ? "De bron is ingeschakeld." : "De bron is uitgeschakeld.";
+  if (field === "historical") return after ? "De bron is als historisch gemarkeerd." : "De bron is niet langer als historisch gemarkeerd.";
+  if (field === "status") return `Status gewijzigd van “${before || "niet ingevuld"}” naar “${after || "niet ingevuld"}”.`;
+  if (field === "date") return `Datum of versie gewijzigd van “${before || "niet ingevuld"}” naar “${after || "niet ingevuld"}”.`;
+  if (field === "url") return "De link naar het origineel is gewijzigd.";
+  if (field === "note") return "De opmerking is aangepast.";
+  return "De brongegevens zijn aangepast.";
+}
 function renderSources(){
   const ds = docs();
   $("#srcTable").innerHTML = `<tr><th>Actief</th><th>Document</th><th>Niveau</th><th>Historisch</th><th>Status</th><th>Datum / versie</th><th>Link naar origineel</th><th>Opmerking</th><th>Passages</th></tr>` +
@@ -521,7 +530,7 @@ $("#srcTable").addEventListener("change", async e=>{
   const before = d[k];
   const patch = Object.assign({}, overrides[id]||{}, {[k]:val, rev:(d.rev||0)+1});
   overrides[id] = patch;
-  await store.saveOverride(id, patch, {ts:now(), who:who(), doc:d.short||d.title, change:`${k}: "${before===undefined?"":before}" → "${val}"`});
+  await store.saveOverride(id, patch, {ts:now(), who:who(), doc:d.short||d.title, change:sourceChangeDescription(k, before, val)});
   buildIndex(); renderSources(); if (results.length) runSearch();
 });
 function chunkText(docId, text){
