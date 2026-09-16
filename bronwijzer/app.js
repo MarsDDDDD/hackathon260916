@@ -221,8 +221,9 @@ function renderFindings(){
     const cls = f.status==="ok"?"st-ok":f.status==="no"?"st-no":f.status==="edit"?"st-edit":"";
     const label = f.status==="ok"?'<span class="tag ok">Bevestigd</span>':f.status==="no"?'<span class="tag bad">Verworpen</span>':f.status==="edit"?'<span class="tag warn">Te controleren</span>':'<span class="tag plain">Voorstel</span>';
     const ver = f.verified? '<span class="tag ok">Citaat letterlijk teruggevonden</span>' : '<span class="tag bad">Citaat niet teruggevonden in bron</span>';
+    const historical = historicalFindingLabel(f.cites);
     return `<div class="find ${cls}" data-f="${esc(f.id)}">
-      <div class="meta" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${label}${ver}<span class="tag plain">${f.origin==="model"?"opgesteld door het taalmodel":f.origin==="extract"?"letterlijk overgenomen":"door medewerker"}</span></div>
+      <div class="meta" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${label}${ver}${historical?`<span class="tag warn">${esc(historical)}</span>`:""}<span class="tag plain">${f.origin==="model"?"opgesteld door het taalmodel":f.origin==="extract"?"letterlijk overgenomen":"door medewerker"}</span></div>
       ${f.status==="edit"
         ? `<label class="note" for="ft-${i}">Bevinding (in gewone taal)</label><textarea id="ft-${i}" data-text>${esc(f.text)}</textarea>
            <label class="note" for="fq-${i}">Letterlijk citaat uit de bron</label><textarea id="fq-${i}" data-quote>${esc(f.quote)}</textarea>`
@@ -260,8 +261,14 @@ function verifyQuote(q, ids){
 function fallbackApplicability(cites){
   const sourceMeta = [...new Set(cites.map(id=>(chunkById(id)||{}).doc))].map(id=>docById(id)).filter(Boolean);
   if (!sourceMeta.length) return "Niet volledig vastgesteld: er is geen controleerbare bronpassage gekoppeld.";
-  const described = sourceMeta.map(d=>[d.municipality||"gemeente niet vermeld", d.type||"soort niet vermeld", d.date||"datum niet vermeld"].join(" · "));
+  const described = sourceMeta.map(d=>[d.municipality||"gemeente niet vermeld", d.type||"soort niet vermeld", d.date||"datum niet vermeld", d.historical ? "historische bron" : "huidige bron"].join(" · "));
   return `Geraadpleegd en gecontroleerd: ${described.join("; ")}.`;
+}
+function historicalFindingLabel(cites){
+  const sources = [...new Set(cites.map(id=>(chunkById(id)||{}).doc))].map(docById).filter(Boolean);
+  const historical = sources.filter(d=>d.historical);
+  if (!historical.length) return "";
+  return historical.length === sources.length ? "Historische bron" : "Bevat historische bron";
 }
 function makeBriefing(modelBriefing, extra=[]){
   const fallback = findings.find(f=>f.status!=="no") || null;
@@ -277,6 +284,7 @@ function makeBriefing(modelBriefing, extra=[]){
     cites: finalCites,
     applicability: String(raw.toepasselijkheid||fallbackApplicability(finalCites)),
     uncertainty: [...(Array.isArray(raw.onzekerheid)?raw.onzekerheid:[]), ...extra].map(String).filter(Boolean),
+    historicalLabel: historicalFindingLabel(finalCites),
     verified: finalCites.length ? verifyQuote(quote, finalCites) : false
   };
 }
@@ -294,12 +302,16 @@ function renderBriefing(){
   const verification = briefing.verified
     ? '<span class="tag ok">Citaat letterlijk teruggevonden</span>'
     : '<span class="tag warn">Controleer of dit citaat letterlijk in de bron staat</span>';
+  const historicalNotice = briefing.historicalLabel
+    ? `<p class="warnbox"><b>${esc(briefing.historicalLabel)}.</b> Historische bronnen zijn context en geen bewijs van de huidige regels.</p>`
+    : "";
   box.innerHTML = `<section class="briefing-card">
     <h3>Vraag</h3><p>${esc(currentQuery||$("#q").value.trim())}</p>
     <h3>Bevinding</h3><p>${esc(briefing.finding)||"<i>Geen bevinding met voldoende bronbasis.</i>"}</p>
     <h3>Bewijs</h3><blockquote>“${esc(briefing.quote)||"Geen letterlijk citaat beschikbaar."}”</blockquote><p>${verification}</p>
     <h3>Bron openen</h3><ul>${sources}</ul>
     <h3>Toepasselijkheid</h3><p>${esc(briefing.applicability)}</p>
+    ${historicalNotice}
     <h3>Onzekerheid</h3>${uncertainty}
     <h3>Beoordeling medewerker</h3><p>Controleer de bevinding aan de hand van de bron; bevestig, corrigeer of verwerp ze voordat u de informatie gebruikt of communiceert.</p>
   </section>`;
@@ -321,7 +333,7 @@ function extractive(){
 let ctl = null;
 async function aiDraft(){
   if (!sample || !results.length) return;
-  const passages = results.slice(0,6).map(r=>{const d=docById(r.c.doc);return {id:r.c.id, bron:cite(r.c), gemeente:d.municipality||"niet vermeld", status:d.status, soort:d.type, niveau:d.level, datum:d.date, tekst:normWS(r.c.text)};});
+  const passages = results.slice(0,6).map(r=>{const d=docById(r.c.doc);return {id:r.c.id, bron:cite(r.c), historisch:!!d.historical, gemeente:d.municipality||"niet vermeld", status:d.status, soort:d.type, niveau:d.level, datum:d.date, tekst:normWS(r.c.text)};});
   const prompt = `Je helpt een medewerker lokale economie een vraag van een ondernemer te beantwoorden.
 Gebruik UITSLUITEND de passages hieronder. Verzin niets. Als de passages iets niet beantwoorden, zet dat bij "onzeker".
 Regels:
@@ -329,6 +341,7 @@ Regels:
 - Elke bevinding verwijst naar 1 of meer passage-id's uit de lijst.
 - "citaat" is een aaneengesloten, LETTERLIJK stuk tekst (max. 40 woorden) uit de eerste passage die je noemt, exact gekopieerd. Gebruik geen ellipsen, weglatingstekens of samenvattingen.
 - Controleer of een expliciet genoemde gemeente/regio in de vraag overeenkomt met de gemeente, titel en inhoud van de passages. Als die niet overeenkomt, geef dan GEEN bevindingen en leg bij "onzeker" uit dat er geen passende regionale bron is.
+- Elke passage heeft het veld "historisch". Bronnen met "historisch": true zijn alleen achtergrondinformatie en geen bewijs van de huidige regels. Gebruik ze alleen als de vraag expliciet over het verleden gaat of als er geen huidige bron beschikbaar is; vermeld in dat geval duidelijk in de bevinding en bij "onzeker" dat de bron historisch is. Geef voorrang aan passages met "historisch": false.
 - Maximaal 5 bevindingen.
 - Maak ook precies één "medewerkerbriefing" voor de medewerker lokale economie. Die vat uitsluitend de bronnen samen in: "bevinding", "bewijs" met "citaat" en "bronnen", "toepasselijkheid" en "onzekerheid".
 - "toepasselijkheid" noemt alleen wat uit de passagemetadata blijkt: gemeente/regio, soort aanvraag, documentversie/datum en wat is gecontroleerd. Ontbreekt iets, vermeld dat als onzeker in plaats van het in te vullen.
