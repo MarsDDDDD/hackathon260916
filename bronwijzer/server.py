@@ -179,6 +179,12 @@ class H(http.server.SimpleHTTPRequestHandler):
         try: raw = base64.b64decode(encoded, validate=True)
         except (ValueError, TypeError): return self.reply(400, {"error": "Het uploadbestand kon niet worden gelezen."})
         if not raw.startswith(b"%PDF") or len(raw) > MAX_UPLOAD: return self.reply(400, {"error": "De PDF is ongeldig of groter dan 20 MB."})
+        sha256 = hashlib.sha256(raw).hexdigest()
+        data = load_collection()
+        duplicate = next((source for source in data["sources"] if source.get("meta", {}).get("sha256") == sha256), None)
+        if duplicate:
+            title = duplicate.get("meta", {}).get("title", "een bestaande bron")
+            return self.reply(409, {"error": f"Dit bestand is al geüpload als ‘{title}’.", "duplicate": True, "sourceId": duplicate.get("meta", {}).get("id")})
         doc_id = "u" + uuid.uuid4().hex[:12]
         try: chunks, pages = chunks_from_pdf(doc_id, raw)
         except ValueError as error: return self.reply(400, {"error": str(error)})
@@ -186,9 +192,10 @@ class H(http.server.SimpleHTTPRequestHandler):
         with open(os.path.join(UPLOAD_DIR, disk_name), "wb") as f: f.write(raw)
         stem = os.path.splitext(name)[0].replace("HISTORICAL-", "").replace("-", " ")
         municipality = "Schoten" if "schoten" in name.lower() else ""
+        historical = name.upper().startswith("HISTORICAL-")
         officer = str((body or {}).get("who") or "onbekende medewerker")
-        source = {"meta": {"id": doc_id, "title": stem, "short": stem[:40], "authority": "officiële bron", "municipality": municipality, "level": "officieel", "type": "regelgeving", "status": "van kracht", "date": "geüpload " + date.today().isoformat(), "url": "/data/uploads/" + urllib.parse.quote(disk_name), "note": "Geüpload door " + officer + ".", "pages": pages, "active": True, "rev": 0, "file": name}, "chunks": chunks}
-        data = load_collection(); data["sources"].append(source); data["sourceLog"].insert(0, {"ts": timestamp(), "who": officer, "doc": stem, "change": f"PDF geüpload ({len(chunks)} passages)"}); save_collection(data)
+        source = {"meta": {"id": doc_id, "title": stem, "short": stem[:40], "authority": "officiële bron", "municipality": municipality, "level": "officieel", "type": "regelgeving", "status": "van kracht", "historical": historical, "sha256": sha256, "date": "geüpload " + date.today().isoformat(), "url": "/data/uploads/" + urllib.parse.quote(disk_name), "note": "Geüpload door " + officer + ".", "pages": pages, "active": True, "rev": 0, "file": name}, "chunks": chunks}
+        data["sources"].append(source); data["sourceLog"].insert(0, {"ts": timestamp(), "who": officer, "doc": stem, "change": f"PDF geüpload ({len(chunks)} passages)"}); save_collection(data)
         return self.reply(201, {"source": source})
 
     def add_text_source(self):
@@ -197,7 +204,7 @@ class H(http.server.SimpleHTTPRequestHandler):
         data = load_collection(); data["sources"].append(source); data["sourceLog"].insert(0, (body or {}).get("log") or {}); save_collection(data); return self.reply(201, {"source": source})
 
     def override_source(self):
-        body = self.read_json(); doc_id, patch = (body or {}).get("id"), (body or {}).get("patch", {}); allowed = {"active", "status", "date", "url", "note", "rev"}
+        body = self.read_json(); doc_id, patch = (body or {}).get("id"), (body or {}).get("patch", {}); allowed = {"active", "historical", "status", "date", "url", "note", "rev"}
         if not doc_id or not isinstance(patch, dict): return self.reply(400, {"error": "Ongeldige bronwijziging."})
         data = load_collection()
         for source in data["sources"]:

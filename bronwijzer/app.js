@@ -92,11 +92,12 @@ function retrievalTerms(q, expansions=[]){
   }
   return out;
 }
-function search(q, expansions=[]){
+function search(q, inclHist, expansions=[]){
   if (!index) buildIndex();
   const terms = retrievalTerms(q, expansions); const k1=1.3, b=0.72; const scored=[];
   for (const {c,tf,len} of index.docsTok){
     const d = docById(c.doc); if (!d || d.active===false) continue;
+    if (d.historical && !inclHist) continue;
     let s=0;
     for (const [t,w] of terms){
       const f = tf.get(t); if(!f) continue;
@@ -108,7 +109,7 @@ function search(q, expansions=[]){
       let hm=0; for (const [t,w] of terms) if (head.has(t)) hm+=w;
       s *= 1 + 0.35*Math.min(hm,3);                                  // heading matches the question
       if (/^definities/i.test(c.title||"")) s*=0.55;                  // definitions support, rarely answer
-      if (d.status==="historisch") s*=0.6;
+      if (d.historical) s*=0.6;
       scored.push({c,score:s});
     }
   }
@@ -119,12 +120,14 @@ function search(q, expansions=[]){
 /* ---------- rendering helpers ---------- */
 function statusTag(d){
   const s = d.status;
-  if (s==="te beoordelen") return '<span class="tag plain">Te beoordelen</span>';
-  if (s==="historisch") return '<span class="tag bad">Historisch</span>';
-  if (s==="ongedateerd") return '<span class="tag warn">Ongedateerd</span>';
-  if (s==="richtlijn" || d.type==="richtlijn") return '<span class="tag warn">Richtlijn, geen regelgeving</span>';
-  if (d.type==="eerder antwoord") return '<span class="tag warn">Eerder antwoord</span>';
-  return '<span class="tag ok">'+esc(s||"van kracht")+'</span>';
+  const tags = [];
+  if (d.historical) tags.push('<span class="tag warn">Historisch</span>');
+  if (s==="te beoordelen") tags.push('<span class="tag plain">Te beoordelen</span>');
+  else if (s==="ongedateerd") tags.push('<span class="tag warn">Ongedateerd</span>');
+  else if (s==="richtlijn" || d.type==="richtlijn") tags.push('<span class="tag warn">Richtlijn, geen regelgeving</span>');
+  else if (d.type==="eerder antwoord") tags.push('<span class="tag warn">Eerder antwoord</span>');
+  else tags.push('<span class="tag ok">'+esc(s||"van kracht")+'</span>');
+  return tags.join("");
 }
 function srcLink(d, page){
   if (d.url) return `<a href="${esc(d.url)}#page=${page}" target="_blank" rel="noopener">Open origineel, p. ${page}</a>`;
@@ -274,7 +277,7 @@ Gebruik UITSLUITEND de passages hieronder. Verzin niets. Als de passages iets ni
 Regels:
 - Schrijf in eenvoudig Nederlands, per bevinding 1 à 2 zinnen.
 - Elke bevinding verwijst naar 1 of meer passage-id's uit de lijst.
-- "citaat" is een LETTERLIJK stuk tekst (max. 40 woorden) uit de eerste passage die je noemt, exact gekopieerd.
+- "citaat" is een aaneengesloten, LETTERLIJK stuk tekst (max. 40 woorden) uit de eerste passage die je noemt, exact gekopieerd. Gebruik geen ellipsen, weglatingstekens of samenvattingen.
 - Controleer of een expliciet genoemde gemeente/regio in de vraag overeenkomt met de gemeente, titel en inhoud van de passages. Als die niet overeenkomt, geef dan GEEN bevindingen en leg bij "onzeker" uit dat er geen passende regionale bron is.
 - Maximaal 5 bevindingen.
 Antwoord met alleen JSON: {"bevindingen":[{"tekst":"...","bronnen":["id"],"citaat":"..."}],"onzeker":["..."]}
@@ -336,8 +339,8 @@ $("#rebuild").onclick = buildDraft;
 $("#copy").onclick = async ()=>{ try{ await navigator.clipboard.writeText($("#draft").value); $("#saveStatus").textContent="Gekopieerd."; }catch(e){ $("#draft").select(); $("#saveStatus").textContent="Selecteer en kopieer met Ctrl+C."; } };
 
 /* ---------- search wiring ---------- */
-function applySearch(query, expansions=[]){
-  const {hits, terms} = search(query, expansions);
+function applySearch(query, inclHist, expansions=[]){
+  const {hits, terms} = search(query, inclHist, expansions);
   results = hits; lastTerms = terms; findings = []; focusId = null; $("#draft").value=""; $("#aiStatus").textContent="";
   return hits;
 }
@@ -388,7 +391,7 @@ async function enrichSearchWithAI(seq, question, draftAfter){
     if (seq!==searchSeq) return;
     queryPlanTerms = cleanQueryPlan(out, question);
     if (queryPlanTerms.length){
-      const hits = applySearch(question, queryPlanTerms);
+      const hits = applySearch(question, $("#inclHist").checked, queryPlanTerms);
       $("#searchStatus").textContent = `${resultCountText(hits)} Aangevuld met ${queryPlanTerms.length} AI-zoekterm(en).`;
     } else {
       $("#searchStatus").textContent = `${resultCountText(results)} Het taalmodel gaf geen aanvullende zoektermen; de lokale zoekresultaten blijven staan.`;
@@ -409,7 +412,7 @@ function runSearch(){
   const seq = ++searchSeq;
   if (searchCtl) searchCtl.abort();
   queryPlanTerms = [];
-  const hits = applySearch(currentQuery);
+  const hits = applySearch(currentQuery, $("#inclHist").checked);
   const canPlan = !!(sample && typeof sample.json==="function");
   searchPlanning = canPlan; setDraftingAvailability();
   $("#searchStatus").textContent = canPlan
@@ -445,15 +448,16 @@ function renderLog(){
 }
 
 /* ---------- sources view ---------- */
-const FIELDS = ["status","date","url","note"];
+const FIELDS = ["historical","status","date","url","note"];
 function renderSources(){
   const ds = docs();
-  $("#srcTable").innerHTML = `<tr><th>Actief</th><th>Document</th><th>Niveau</th><th>Status</th><th>Datum / versie</th><th>Link naar origineel</th><th>Opmerking</th><th>Passages</th></tr>` +
+  $("#srcTable").innerHTML = `<tr><th>Actief</th><th>Document</th><th>Niveau</th><th>Historisch</th><th>Status</th><th>Datum / versie</th><th>Link naar origineel</th><th>Opmerking</th><th>Passages</th></tr>` +
     ds.map(d=>`<tr data-doc="${esc(d.id)}">
       <td><input type="checkbox" aria-label="Actief" data-k="active" ${d.active===false?"":"checked"}></td>
       <td><b>${esc(d.title)}</b><div class="note">${esc(d.authority)}${d.file?" · "+esc(d.file):""}${d.rev?` · wijziging ${d.rev}`:""}</div></td>
       <td>${esc(d.level)}</td>
-      <td><select data-k="status">${["te beoordelen","van kracht","richtlijn","ongedateerd","historisch"].map(s=>`<option ${s===d.status?"selected":""}>${s}</option>`).join("")}</select></td>
+      <td><input type="checkbox" aria-label="Historisch" data-k="historical" ${d.historical?"checked":""}></td>
+      <td><select data-k="status">${["te beoordelen","van kracht","richtlijn","ongedateerd"].map(s=>`<option ${s===d.status?"selected":""}>${s}</option>`).join("")}</select></td>
       <td><input data-k="date" value="${esc(d.date)}"></td>
       <td><input data-k="url" value="${esc(d.url)}" placeholder="https://"></td>
       <td><textarea data-k="note">${esc(d.note)}</textarea></td>
@@ -462,7 +466,7 @@ function renderSources(){
 $("#srcTable").addEventListener("change", async e=>{
   const tr = e.target.closest("tr[data-doc]"); const k = e.target.dataset.k; if(!tr||!k) return;
   const id = tr.dataset.doc; const d = docById(id);
-  const val = k==="active"? e.target.checked : e.target.value.trim();
+  const val = k==="active" || k==="historical" ? e.target.checked : e.target.value.trim();
   if (k==="url" && val && !/^https?:\/\//.test(val)){ $("#storeStatus").textContent="Een link moet beginnen met http:// of https://."; return; }
   const before = d[k];
   const patch = Object.assign({}, overrides[id]||{}, {[k]:val, rev:(d.rev||0)+1});
@@ -490,7 +494,7 @@ $("#addSrc").onclick = async ()=>{
   if (url && !/^https?:\/\//.test(url)){ $("#addStatus").textContent="Een link moet beginnen met http:// of https://."; return; }
   if (text.length>200000){ $("#addStatus").textContent="Deze tekst is te lang voor één bron. Splits hem op."; return; }
   const id = "u"+Date.now().toString(36);
-  const meta = {id, title, short:title.slice(0,40), authority:$("#nAuth").value.trim(), level:$("#nLevel").value, type:$("#nType").value, status:$("#nStatus").value, date:$("#nDate").value.trim()||"datum onbekend", url, note:"Toegevoegd door "+who()+". Paginanummers zijn niet bekend.", pages:1};
+  const meta = {id, title, short:title.slice(0,40), authority:$("#nAuth").value.trim(), level:$("#nLevel").value, type:$("#nType").value, status:$("#nStatus").value, historical:false, date:$("#nDate").value.trim()||"datum onbekend", url, note:"Toegevoegd door "+who()+". Paginanummers zijn niet bekend.", pages:1};
   const chunks = chunkText(id, text);
   await store.addSource({meta, chunks}, {ts:now(), who:who(), doc:title, change:`bron toegevoegd (${chunks.length} passages)`});
   ["nTitle","nAuth","nDate","nUrl","nText"].forEach(x=>$("#"+x).value="");
@@ -505,15 +509,16 @@ $("#uploadSrc").onclick = async ()=>{
   if(!files.length){ $("#uploadStatus").textContent="Kies eerst minstens één PDF."; return; }
   if(!API){ $("#uploadStatus").textContent="Start Bronwijzer via server.py om PDF's te uploaden."; return; }
   $("#uploadSrc").disabled=true;
-  let done=0;
+  let done=0, skipped=[];
   try{
     for(const file of files){
       if(file.size>20*1024*1024) throw new Error(`${file.name} is groter dan 20 MB.`);
       $("#uploadStatus").textContent=`Uploaden en indexeren: ${file.name} (${done+1}/${files.length})…`;
-      await api("/sources/upload",{file:{name:file.name,data:await fileData(file)},who:who()}); done++;
+      try{ await api("/sources/upload",{file:{name:file.name,data:await fileData(file)},who:who()}); done++; }
+      catch(e){ if(/al geüpload/.test(e.message||"")){ skipped.push(file.name); continue; } throw e; }
     }
     await loadSharedCollection(); buildIndex(); renderSources();
-    $("#pdfFiles").value=""; $("#uploadStatus").textContent=`${done} PDF${done===1?"":"'s"} geüpload en geïndexeerd.`;
+    $("#pdfFiles").value=""; $("#uploadStatus").textContent=`${done} PDF${done===1?"":"'s"} geüpload en geïndexeerd.${skipped.length?` ${skipped.length} dubbel bestand overgeslagen.`:""}`;
   }catch(e){ $("#uploadStatus").textContent=`Na ${done} bestand(en): ${e.message||"upload mislukt."}`; }
   finally{ $("#uploadSrc").disabled=false; }
 };
