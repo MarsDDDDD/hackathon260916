@@ -27,15 +27,9 @@ let focusId = null;
 let currentQuery = "";
 let queryPlanTerms = [];     // model-suggested retrieval aids, never evidence
 let searchPlanning = false;
+let drafting = false;
 let searchCtl = null;
 let searchSeq = 0;
-const LOCAL_MUNICIPALITY = "Schoten";
-const OTHER_MUNICIPALITIES = ["antwerpen","brussel","gent","mechelen","turnhout","leuven","hasselt","brugge","kortrijk","aalst","genk","sint-niklaas"];
-
-function requestedForeignMunicipality(query){
-  const words = new Set(tokens(query));
-  return OTHER_MUNICIPALITIES.find(place=>words.has(place)) || null;
-}
 
 function docs(){
   const base = BASE.docs.map(d=>Object.assign({}, d, overrides[d.id]||{}));
@@ -98,12 +92,11 @@ function retrievalTerms(q, expansions=[]){
   }
   return out;
 }
-function search(q, inclHist, expansions=[]){
+function search(q, expansions=[]){
   if (!index) buildIndex();
   const terms = retrievalTerms(q, expansions); const k1=1.3, b=0.72; const scored=[];
   for (const {c,tf,len} of index.docsTok){
     const d = docById(c.doc); if (!d || d.active===false) continue;
-    if (d.status==="historisch" && !inclHist) continue;
     let s=0;
     for (const [t,w] of terms){
       const f = tf.get(t); if(!f) continue;
@@ -162,7 +155,7 @@ const chunkById = (id)=> allChunks().find(c=>c.id===id);
 let lastTerms = [];
 function renderEvidence(){
   const box = $("#evidence");
-  if (!results.length){ box.innerHTML = '<p class="empty">Geen passages gevonden binnen deze bronnen. Zet historische documenten aan, controleer de vraag, of voeg een bron toe.</p>'; $("#levels").innerHTML=""; return; }
+  if (!results.length){ box.innerHTML = '<p class="empty">Geen passages gevonden binnen deze bronnen. Controleer de vraag of voeg een passende bron toe.</p>'; $("#levels").innerHTML=""; return; }
   const lv = {}; results.forEach(r=>{const d=docById(r.c.doc); lv[d.level]=(lv[d.level]||0)+1;});
   $("#levels").innerHTML = ["gemeentelijk","provinciaal","Vlaams","federaal"].map(l=>`<span class="tag ${lv[l]?"plain":"plain"}" style="${lv[l]?"":"opacity:.45"}">${l}: ${lv[l]||0}</span>`).join("");
   const top = results[0].score; const noted = new Set();
@@ -208,26 +201,18 @@ function renderUncert(){
   const consider = usedDocs.size ? [...usedDocs] : [...new Set(results.map(r=>r.c.doc))];
   for (const id of consider){
     const d = docById(id); if(!d) continue;
-    if (d.status==="historisch") out.push(`<b>${esc(d.short)}</b> is historisch: geen bewijs van de huidige regels.`);
-    if (d.status==="te beoordelen") out.push(`<b>${esc(d.short)}</b> is nieuw geüpload en nog te beoordelen: gebruik het niet als bevestiging van de huidige regels.`);
-    if (d.status==="ongedateerd") out.push(`<b>${esc(d.short)}</b> is ongedateerd: controleer of dit de geldende versie is.`);
-    if (d.type==="richtlijn") out.push(`<b>${esc(d.short)}</b> is een richtlijn, geen regelgeving.`);
-    if (!d.url) out.push(`Voor <b>${esc(d.short)}</b> ontbreekt een link naar het origineel.`);
   }
   const unver = findings.filter(f=>f.status!=="no" && !f.verified);
   if (unver.length) out.push(`${unver.length} bevinding(en) bevatten een citaat dat niet letterlijk in de bron staat. Controleer die eerst.`);
-  const lv = new Set(results.map(r=>docById(r.c.doc).level));
-  const missing = ["gemeentelijk","provinciaal","Vlaams","federaal"].filter(l=>!lv.has(l));
-  if (missing.length) out.push(`Geen passages gevonden op niveau: ${missing.join(", ")}. Dat kan betekenen dat de collectie daar onvolledig is, niet dat er geen regels zijn.`);
-  if (results[0] && results[0].score<3) out.push("Alle passages scoren laag. Mogelijk behandelt de collectie deze vraag niet.");
-  if (/markt/i.test(currentQuery) && results.some(r=>r.c.doc==="markt")) out.push("Het marktplan en de quotalijst per productgroep zijn bijlagen die niet in de collectie zitten.");
   $("#uncert").innerHTML = out.length? `<div class="warnbox"><b>Onzekerheid en toepasselijkheid</b><ul>${out.map(x=>"<li>"+x+"</li>").join("")}</ul></div>`:"";
 }
 
 /* ---------- findings ---------- */
 function renderFindings(){
   const box = $("#findings");
-  if (!findings.length){ box.innerHTML = results.length? '<p class="empty">Nog geen bevindingen. Laat ze opstellen of neem een passage over.</p>':'<p class="empty">Zoek eerst passages. Daarna kunt u bevindingen laten opstellen of zelf passages als bevinding overnemen.</p>'; return; }
+  if (!findings.length){ box.innerHTML = results.length
+    ? `<p class="empty">${drafting ? "Bevindingen worden opgesteld…" : "Geen bevindingen met voldoende bronbasis."}</p>`
+    : '<p class="empty">Stel een vraag en kies “Beantwoord met bronnen”.</p>'; return; }
   box.innerHTML = findings.map((f,i)=>{
     const cls = f.status==="ok"?"st-ok":f.status==="no"?"st-no":f.status==="edit"?"st-edit":"";
     const label = f.status==="ok"?'<span class="tag ok">Bevestigd</span>':f.status==="no"?'<span class="tag bad">Verworpen</span>':f.status==="edit"?'<span class="tag warn">Te controleren</span>':'<span class="tag plain">Voorstel</span>';
@@ -290,8 +275,7 @@ Regels:
 - Schrijf in eenvoudig Nederlands, per bevinding 1 à 2 zinnen.
 - Elke bevinding verwijst naar 1 of meer passage-id's uit de lijst.
 - "citaat" is een LETTERLIJK stuk tekst (max. 40 woorden) uit de eerste passage die je noemt, exact gekopieerd.
-- Historische of ongedateerde passages of richtlijnen mag je alleen gebruiken als je dat in de bevinding zegt.
-- Gebruik geen gemeentelijke passage voor een andere gemeente dan de gemeente die in de vraag staat. Meld dat als onzeker.
+- Controleer of een expliciet genoemde gemeente/regio in de vraag overeenkomt met de gemeente, titel en inhoud van de passages. Als die niet overeenkomt, geef dan GEEN bevindingen en leg bij "onzeker" uit dat er geen passende regionale bron is.
 - Maximaal 5 bevindingen.
 Antwoord met alleen JSON: {"bevindingen":[{"tekst":"...","bronnen":["id"],"citaat":"..."}],"onzeker":["..."]}
 
@@ -300,7 +284,7 @@ VRAAG: ${$("#q").value.trim()}
 PASSAGES:
 ${JSON.stringify(passages,null,1)}`;
   ctl = new AbortController();
-  $("#draftAI").disabled = true; $("#stopAI").hidden = false;
+  drafting = true;
   $("#aiStatus").textContent = "Het taalmodel leest de passages… (dit kan tot een minuut duren)";
   try{
     const out = await sample.json(prompt,{signal:ctl.signal, modelTier:"default"});
@@ -319,12 +303,10 @@ ${JSON.stringify(passages,null,1)}`;
       $("#aiStatus").textContent = `${reason} Er zijn daarom controleerbare kernzinnen uit de gevonden passages klaargezet; bevestig ze eerst.`;
     } else $("#aiStatus").textContent = reason;
   }finally{
-    $("#draftAI").disabled = false; $("#stopAI").hidden = true; renderAll();
+    drafting = false;
+    renderAll();
   }
 }
-$("#stopAI").onclick = ()=>ctl && ctl.abort();
-$("#draftAI").onclick = aiDraft;
-$("#draftX").onclick = ()=>{ if(!results.length){$("#aiStatus").textContent="Zoek eerst passages.";return;} extractive(); };
 
 function buildDraft(){
   const ok = findings.filter(f=>f.status==="ok");
@@ -354,18 +336,14 @@ $("#rebuild").onclick = buildDraft;
 $("#copy").onclick = async ()=>{ try{ await navigator.clipboard.writeText($("#draft").value); $("#saveStatus").textContent="Gekopieerd."; }catch(e){ $("#draft").select(); $("#saveStatus").textContent="Selecteer en kopieer met Ctrl+C."; } };
 
 /* ---------- search wiring ---------- */
-const EX = ["Hoeveel kost een vaste standplaats op de markt?","Tot hoe laat mag mijn terras open in de winter?","Moet ik bij het FAVV geregistreerd zijn om voeding te verkopen?","Kan mijn bedrijf een provinciale innovatiesubsidie krijgen?"];
-$("#examples").innerHTML = EX.map(x=>`<button type="button">${esc(x)}</button>`).join("");
-$("#examples").addEventListener("click",e=>{ if(e.target.tagName==="BUTTON"){ $("#q").value=e.target.textContent; runSearch(); }});
-function applySearch(query, inclHist, expansions=[]){
-  const {hits, terms} = search(query, inclHist, expansions);
+function applySearch(query, expansions=[]){
+  const {hits, terms} = search(query, expansions);
   results = hits; lastTerms = terms; findings = []; focusId = null; $("#draft").value=""; $("#aiStatus").textContent="";
   return hits;
 }
 function resultCountText(hits){ return hits.length? `${hits.length} passages gevonden.` : "Geen passages gevonden."; }
 function setDraftingAvailability(){
-  $("#draftAI").disabled = searchPlanning;
-  $("#draftX").disabled = searchPlanning;
+  // De enkele vraagknop stuurt de hele zoek- en antwoordstroom aan.
 }
 function renderSearchPlan(){
   const box = $("#searchPlan"); if (!box) return;
@@ -404,13 +382,13 @@ function cleanQueryPlan(out, originalQuery){
   }
   return cleaned;
 }
-async function enrichSearchWithAI(seq, question, inclHist){
+async function enrichSearchWithAI(seq, question, draftAfter){
   try{
     const out = await sample.json(queryPlanPrompt(question), {signal:searchCtl.signal, modelTier:"default"});
     if (seq!==searchSeq) return;
     queryPlanTerms = cleanQueryPlan(out, question);
     if (queryPlanTerms.length){
-      const hits = applySearch(question, inclHist, queryPlanTerms);
+      const hits = applySearch(question, queryPlanTerms);
       $("#searchStatus").textContent = `${resultCountText(hits)} Aangevuld met ${queryPlanTerms.length} AI-zoekterm(en).`;
     } else {
       $("#searchStatus").textContent = `${resultCountText(results)} Het taalmodel gaf geen aanvullende zoektermen; de lokale zoekresultaten blijven staan.`;
@@ -423,31 +401,24 @@ async function enrichSearchWithAI(seq, question, inclHist){
   }finally{
     if (seq!==searchSeq) return;
     searchPlanning = false; setDraftingAvailability(); renderAll();
+    if (draftAfter && results.length) aiDraft();
   }
 }
 function runSearch(){
   currentQuery = $("#q").value.trim(); if(!currentQuery) return;
-  const inclHist = $("#inclHist").checked;
   const seq = ++searchSeq;
   if (searchCtl) searchCtl.abort();
   queryPlanTerms = [];
-  const otherMunicipality = requestedForeignMunicipality(currentQuery);
-  if (otherMunicipality){
-    results=[]; findings=[]; focusId=null; lastTerms=[]; $("#draft").value=""; $("#aiStatus").textContent="";
-    searchPlanning=false; setDraftingAvailability();
-    $("#searchStatus").textContent=`Geen antwoord: deze collectie is ingericht voor ${LOCAL_MUNICIPALITY}, niet voor ${otherMunicipality}. Voeg eerst bronnen voor die gemeente toe.`;
-    renderAll(); return;
-  }
-  const hits = applySearch(currentQuery, inclHist);
+  const hits = applySearch(currentQuery);
   const canPlan = !!(sample && typeof sample.json==="function");
   searchPlanning = canPlan; setDraftingAvailability();
   $("#searchStatus").textContent = canPlan
     ? `${resultCountText(hits)} Taalmodel vertaalt de vraag naar aanvullende zoektermen…`
     : resultCountText(hits);
   renderAll();
-  if (!canPlan) return;
+  if (!canPlan){ if (hits.length) extractive(); return; }
   searchCtl = new AbortController();
-  enrichSearchWithAI(seq, currentQuery, inclHist);
+  enrichSearchWithAI(seq, currentQuery, true);
 }
 $("#go").onclick = runSearch;
 $("#q").addEventListener("keydown",e=>{ if(e.key==="Enter" && (e.ctrlKey||e.metaKey)) runSearch(); });
@@ -586,7 +557,7 @@ async function loadSharedCollection(){
   srcLog=Array.isArray(data.sourceLog)?data.sourceLog:[];
 }
 function storeNote(){ $("#storeStatus").textContent = window.API? "Bronnen en logboek worden gedeeld via deze Bronwijzer-server." : db? "Wijzigingen worden gedeeld met iedereen die deze pagina gebruikt." : "Wijzigingen worden alleen in deze browser bewaard."; }
-loadLocal(); buildIndex(); storeNote(); runSearch();
+loadLocal(); buildIndex(); storeNote(); renderAll();
 
 /* ---------- taalmodel via de eigen server (zie server.py) ---------- */
 const API = window.API;
@@ -611,8 +582,6 @@ function useOpenAI(model){
     if (!r.ok) throw {code: r.status===429?"rate_limited":r.status===503?"not_granted":"upstream_error", message:data.error};
     return data;
   }};
-  $("#draftAI").hidden = false;
-  $("#draftAI").textContent = "Formuleer bevindingen met "+model;
   $("#openSetup").textContent = model;
 }
 
@@ -668,7 +637,7 @@ $("#openSetup").onclick = async ()=>{
   if (!window.claude || !window.claude.use) return;
   try{
     const s = await window.claude.use("sample");
-    if (s){ sample = s; $("#draftAI").hidden = false; }
+    if (s){ sample = s; }
   }catch(e){}
   try{
     const d = await window.claude.use("db");

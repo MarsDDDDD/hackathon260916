@@ -1,5 +1,6 @@
 """Lokale server voor Bronwijzer met een door medewerkers beheerde collectie."""
 import base64
+import hashlib
 import http.server
 import io
 import json
@@ -46,6 +47,23 @@ def load_collection():
         with open(COLLECTION, encoding="utf-8") as f: value = json.load(f)
     except (OSError, ValueError): value = {}
     value.setdefault("sources", []); value.setdefault("answers", []); value.setdefault("sourceLog", [])
+    changed = False
+    for source in value["sources"]:
+        meta = source.get("meta", {})
+        if meta.get("status") == "te beoordelen":
+            meta["status"] = "van kracht"; changed = True
+        # Bestanden worden door de dienst zelf aangeleverd: behandel ze als
+        # officiële bronnen, niet als onbeoordeelde invoer.
+        if meta.get("level") == "te beoordelen":
+            meta["level"] = "officieel"; changed = True
+        note = meta.get("note", "")
+        if " Controleer brongegevens en status." in note:
+            meta["note"] = note.replace(" Controleer brongegevens en status.", "")
+            changed = True
+        if "historical" not in meta:
+            meta["historical"] = meta.get("status") == "historisch" or str(meta.get("file", "")).upper().startswith("HISTORICAL-")
+            changed = True
+    if changed: save_collection(value)
     return value
 
 
@@ -166,10 +184,10 @@ class H(http.server.SimpleHTTPRequestHandler):
         except ValueError as error: return self.reply(400, {"error": str(error)})
         disk_name = doc_id + "-" + name; os.makedirs(UPLOAD_DIR, exist_ok=True)
         with open(os.path.join(UPLOAD_DIR, disk_name), "wb") as f: f.write(raw)
-        stem = os.path.splitext(name)[0].replace("HISTORICAL-", "").replace("-", " "); historical = name.upper().startswith("HISTORICAL-")
+        stem = os.path.splitext(name)[0].replace("HISTORICAL-", "").replace("-", " ")
         municipality = "Schoten" if "schoten" in name.lower() else ""
         officer = str((body or {}).get("who") or "onbekende medewerker")
-        source = {"meta": {"id": doc_id, "title": stem, "short": stem[:40], "authority": "te beoordelen", "municipality": municipality, "level": "te beoordelen", "type": "onbekend", "status": "historisch" if historical else "te beoordelen", "date": "geüpload " + date.today().isoformat(), "url": "/data/uploads/" + urllib.parse.quote(disk_name), "note": "Geüpload door " + officer + ". Controleer brongegevens en status.", "pages": pages, "active": True, "rev": 0, "file": name}, "chunks": chunks}
+        source = {"meta": {"id": doc_id, "title": stem, "short": stem[:40], "authority": "officiële bron", "municipality": municipality, "level": "officieel", "type": "regelgeving", "status": "van kracht", "date": "geüpload " + date.today().isoformat(), "url": "/data/uploads/" + urllib.parse.quote(disk_name), "note": "Geüpload door " + officer + ".", "pages": pages, "active": True, "rev": 0, "file": name}, "chunks": chunks}
         data = load_collection(); data["sources"].append(source); data["sourceLog"].insert(0, {"ts": timestamp(), "who": officer, "doc": stem, "change": f"PDF geüpload ({len(chunks)} passages)"}); save_collection(data)
         return self.reply(201, {"source": source})
 

@@ -62,8 +62,8 @@ Installeer eenmalig de PDF-lezer:
 pip install -r requirements.txt
 ```
 
-Een nieuwe upload krijgt bewust de status **te beoordelen**. Controleer die
-broninformatie vóór ze als geldende regelgeving wordt gebruikt.
+Bronnen worden door de dienst als officiële, geldende documenten geüpload en
+zijn daarom onmiddellijk doorzoekbaar en bruikbaar als bron.
 
 ## Corpus exporteren (alleen voor ontwikkelaars)
 
@@ -77,7 +77,7 @@ Nieuw document? Voeg een regel toe aan `DOCS` en draai het script opnieuw.
 ## Waar pas je wat aan (app.js)
 
 - `SYN` en `STOP`: synoniemen en stopwoorden voor het zoeken.
-- `search()`: rangschikking en gewicht voor historische documenten.
+- `search()`: lokale rangschikking van passages uit de geüploade collectie.
 - `renderUncert()`: welke waarschuwingen de medewerker ziet.
 - `aiDraft()`: de prompt voor het taalmodel en de JSON-vorm van het antwoord.
 - `verifyQuote()`: controle of een citaat letterlijk in de bron staat.

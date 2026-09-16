@@ -56,11 +56,9 @@
 <section id="v-ask" class="view">
   <div class="ask">
     <label class="q" for="q">Vraag van de ondernemer</label>
-    <textarea id="q">Ik wil een vaste standplaats op de markt. Hoe dien ik een aanvraag in?</textarea>
-    <div class="row chips" id="examples"></div>
+    <textarea id="q" placeholder="Typ de vraag van de ondernemer…"></textarea>
     <div class="row">
-      <span class="scope"><label><input type="checkbox" id="inclHist"> historische documenten meenemen</label></span>
-      <button class="btn" id="go">Zoek passages</button>
+      <button class="btn" id="go">Beantwoord met bronnen</button>
       <span class="status" id="searchStatus" aria-live="polite"></span>
     </div>
     <div id="searchPlan" class="search-plan" hidden aria-live="polite"></div>
@@ -70,14 +68,9 @@
       <div class="panel">
         <h2>Bevindingen</h2>
         <p class="sub">Elke bevinding verwijst naar een letterlijke passage. Bevestig, pas aan of verwerp ze voordat u iets communiceert.</p>
-        <div class="row" style="margin-top:0">
-          <button class="btn" id="draftAI" hidden>Formuleer bevindingen met het taalmodel</button>
-          <button class="btn ghost" id="draftX">Neem letterlijke kernzinnen over</button>
-          <button class="btn ghost small" id="stopAI" hidden>Stop</button>
-        </div>
         <p class="status" id="aiStatus" aria-live="polite"></p>
         <div id="uncert"></div>
-        <div id="findings"><p class="empty">Zoek eerst passages. Daarna kunt u bevindingen laten opstellen of zelf passages als bevinding overnemen.</p></div>
+        <div id="findings"><p class="empty">Stel een vraag en kies “Beantwoord met bronnen”.</p></div>
       </div>
       <div class="panel draft">
         <h2>Conceptantwoord</h2>
@@ -109,7 +102,7 @@
   </div>
   <div class="panel big">
     <h2>PDF's uploaden</h2>
-    <p class="sub">Kies één of meer doorzoekbare PDF's. Bronwijzer bewaart de originele bestanden en indexeert hun tekst op de server. Nieuwe bronnen zijn altijd “te beoordelen”: controleer daarna status, datum en notitie in de tabel hierboven.</p>
+    <p class="sub">Kies één of meer doorzoekbare PDF's. De dienst uploadt hier officiële bronnen; Bronwijzer bewaart de originele bestanden en indexeert hun tekst op de server.</p>
     <label class="upload" for="pdfFiles">PDF-bestanden<input id="pdfFiles" type="file" accept="application/pdf,.pdf" multiple></label>
     <div class="row"><button class="btn" id="uploadSrc" type="button">Geselecteerde PDF's uploaden</button><span class="status" id="uploadStatus" aria-live="polite"></span></div>
   </div>
