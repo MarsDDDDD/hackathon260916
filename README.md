@@ -1,35 +1,57 @@
-# BronWijzer MVP
+# Bronwijzer lokale economie
 
-An evidence-first Dutch back-office prototype for the PROV-AI Challenge 2.
+Prototype voor de **PROV-AI hackathon, Challenge 2 · Answer Like the Expert**.
 
-## Run locally
+Een back-office tool voor medewerkers lokale economie. De medewerker uploadt zelf de officiële PDF-bronnen,
+zoekt letterlijke passages, bevestigt bevindingen en maakt een bewerkbaar conceptantwoord.
+De tool kan niets verzenden: de medewerker beslist wat er gecommuniceerd wordt.
 
-Because this is a dependency-free local prototype, run the included local server:
+## Snel starten
 
-```powershell
-node server.mjs
+```bash
+cd bronwijzer
+pip install -r requirements.txt
+python server.py
 ```
 
-Open [http://127.0.0.1:4173](http://127.0.0.1:4173). The demo uses the Schoten market regulation (article 13, pages 5-6) and the 2026-2031 market-fee regulation (article 4.1, page 1) as its initial controlled source set.
+Open daarna http://localhost:8000. Zonder server kun je ook `bronwijzer/index.html` openen.
+Zoeken, bewijs en concept werken dan ook, maar de AI-functies en gedeelde uploads niet.
 
-## Optional OpenAI connection
+## Hoe het werkt
 
-The default evidence workflow is deterministic and works without an API key. To have OpenAI write an additional source-bounded concept, open **AI-instellingen**:
+1. **Bronnen beheren:** upload doorzoekbare PDF's. De server bewaart het origineel en indexeert de tekst per pagina.
+2. **Zoek passages:** een lokale, reproduceerbare BM25-zoekopdracht vindt letterlijke passages met document, status en pagina.
+   Als er een taalmodel is ingesteld, stelt het alleen extra zoektermen voor. Het model ziet dan geen brontekst.
+3. **Bevindingen:** de medewerker kiest passages en laat eventueel bevindingen formuleren.
+   Elk citaat wordt gecontroleerd tegen de brontekst en onzekerheden blijven zichtbaar.
+4. **Concept:** de medewerker krijgt een bewerkbaar antwoord in het Nederlands, met bronverwijzingen. Er is geen verzendknop.
+5. **Logboek:** bronwijzigingen en goedgekeurde antwoorden worden bijgehouden, zodat alles herleidbaar blijft.
 
-- Paste a project API key; it is sent only to the local `server.mjs` process and held only in that process's memory. It is not written to browser storage, source files, or history.
-- The local server asks OpenAI for the models available to that project and allows the officer to select one.
-- On analysis, only the customer question and the active evidence excerpts are sent to OpenAI. The original PDFs and disabled sources stay local.
-- The AI concept uses clickable labels such as `Bron 1`; they focus the matching evidence card, where the exact quoted words can be highlighted inside the surrounding source fragment.
+## Aansluiting bij de beoordelingscriteria
 
-For a deployment, do not use the key-entry form. Start the server with `OPENAI_API_KEY` set by the deployment environment or a secret manager. Never put a key in the browser bundle, Git repository, or client-side storage.
+| Criterium | In Bronwijzer |
+| --- | --- |
+| Accurate antwoorden met bronnen | Letterlijke passages, pagina en link naar het origineel, citaatcontrole en zichtbare onzekerheid |
+| Medewerker houdt de controle | Bevindingen bevestigen of corrigeren, concept bewerken, geen automatisch verzenden |
+| Onderhoudbare, herleidbare kennis | Bronnen uploaden zonder technische hulp, logboek van wijzigingen en antwoorden, herbruikbaar voor elke gemeente |
 
-## What the demo demonstrates
+## Taalmodel (optioneel)
 
-- Only active, reviewed sources can support an answer.
-- Each answer claim has a quote, article/page location and original-source link.
-- The UI shows applicability and an explicit uncertainty check.
-- Disabling the procedural regulation blocks the answer instead of inventing one.
-- The officer records a review and edits a draft; the app intentionally cannot send it.
-- Uploaded files start as **te beoordelen** and cannot be used until their metadata is reviewed.
+Bij de eerste start vraagt de pagina om een OpenAI API-sleutel en een model. Beide worden opgeslagen in
+`bronwijzer/settings.json`. Dat bestand staat in `.gitignore` en wordt nooit naar de browser gestuurd.
+`OPENAI_API_KEY`, `OPENAI_MODEL` en `OPENAI_URL` in de omgeving worden ook ondersteund.
 
-The UI contains locally embedded evidence excerpts solely for a stable hackathon demo. A production build would extract, store, and index officer-provided source files while keeping that metadata and the original source file linked to each answer.
+## Mapstructuur
+
+| Pad | Inhoud |
+| --- | --- |
+| `bronwijzer/` | De applicatie. Technische details staan in [bronwijzer/README.md](bronwijzer/README.md) |
+| `AP-starter-pack-2026-09-07/` | Starterbestanden van de hackathon (KBO-data en PDF's; bestanden met `HISTORICAL-` zijn niet meer geldig) |
+| `agent.md` | Referentie over de hackathonregels |
+
+## Beperkingen
+
+- Het zoeken gebruikt trefwoorden, geen embeddings.
+- Alleen doorzoekbare PDF's worden ondersteund (geen OCR).
+- De collectie start leeg: upload eerst de bronnen die je wilt gebruiken.
+- Dit is een lokaal prototype zonder gebruikersbeheer of authenticatie.
