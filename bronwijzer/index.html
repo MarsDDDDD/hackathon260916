@@ -17,8 +17,41 @@
     <button role="tab" aria-selected="false" data-view="v-src">Bronnen beheren</button>
     <button role="tab" aria-selected="false" data-view="v-log">Logboek</button>
   </nav>
-  <div class="who"><label for="who">Medewerker</label><input id="who" placeholder="uw naam"></div>
+  <div class="who">
+    <label for="who">Medewerker</label><input id="who" placeholder="uw naam">
+    <button class="btn ghost small" id="openSetup" hidden>Taalmodel</button>
+  </div>
 </header>
+
+<dialog id="setup" aria-labelledby="setupTitle">
+  <form method="dialog" id="setupForm">
+    <h2 id="setupTitle">Taalmodel instellen</h2>
+    <p class="sub">Bronwijzer gebruikt de OpenAI API om bevindingen te formuleren uit de passages die het zelf terugvindt. Zonder sleutel werkt alles behalve die ene knop.</p>
+
+    <div id="stepKey">
+      <label for="apiKey">API-sleutel</label>
+      <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…">
+      <p class="note">De sleutel blijft op deze computer, in <code>settings.json</code> naast <code>server.py</code>. Ze wordt nooit naar de browser gestuurd en staat in <code>.gitignore</code>.</p>
+      <div class="row">
+        <button class="btn" id="saveKey" type="button">Controleer sleutel</button>
+        <span class="status" id="setupStatus" aria-live="polite"></span>
+      </div>
+    </div>
+
+    <div id="stepModel" hidden>
+      <label for="modelSel">Model</label>
+      <select id="modelSel"></select>
+      <p class="note" id="keyNote"></p>
+      <div class="row">
+        <button class="btn" id="saveModel" type="button">Opslaan en beginnen</button>
+        <button class="btn ghost" id="changeKey" type="button">Andere sleutel</button>
+        <span class="status" id="modelStatus" aria-live="polite"></span>
+      </div>
+    </div>
+
+    <div class="row"><button class="btn ghost small" id="closeSetup" value="close">Sluiten</button></div>
+  </form>
+</dialog>
 <main>
 <section id="v-ask" class="view">
   <div class="ask">
@@ -38,7 +71,7 @@
         <h2>Bevindingen</h2>
         <p class="sub">Elke bevinding verwijst naar een letterlijke passage. Bevestig, pas aan of verwerp ze voordat u iets communiceert.</p>
         <div class="row" style="margin-top:0">
-          <button class="btn" id="draftAI" hidden>Formuleer bevindingen met Claude</button>
+          <button class="btn" id="draftAI" hidden>Formuleer bevindingen met het taalmodel</button>
           <button class="btn ghost" id="draftX">Neem letterlijke kernzinnen over</button>
           <button class="btn ghost small" id="stopAI" hidden>Stop</button>
         </div>
@@ -104,8 +137,9 @@
   </div>
 </section>
 </main>
-<!-- Instellingen: zet LLM_ENDPOINT op "/api/ask" als je server.py gebruikt -->
-<script>window.LLM_ENDPOINT = (location.protocol.startsWith("http") ? "/api/ask" : "");</script>
+<!-- Met server.py draait de tool op http://localhost:8000 en is het taalmodel bereikbaar.
+     Rechtstreeks openen via file:// werkt ook, maar dan zonder taalmodel. -->
+<script>window.API = location.protocol.startsWith("http") ? "/api" : "";</script>
 <script src="corpus.js"></script>
 <script src="app.js"></script>
 </body>

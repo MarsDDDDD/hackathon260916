@@ -214,7 +214,7 @@ function renderFindings(){
     const label = f.status==="ok"?'<span class="tag ok">Bevestigd</span>':f.status==="no"?'<span class="tag bad">Verworpen</span>':f.status==="edit"?'<span class="tag warn">Te controleren</span>':'<span class="tag plain">Voorstel</span>';
     const ver = f.verified? '<span class="tag ok">Citaat letterlijk teruggevonden</span>' : '<span class="tag bad">Citaat niet teruggevonden in bron</span>';
     return `<div class="find ${cls}" data-f="${esc(f.id)}">
-      <div class="meta" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${label}${ver}<span class="tag plain">${f.origin==="claude"?"opgesteld door Claude":f.origin==="extract"?"letterlijk overgenomen":"door medewerker"}</span></div>
+      <div class="meta" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${label}${ver}<span class="tag plain">${f.origin==="model"?"opgesteld door het taalmodel":f.origin==="extract"?"letterlijk overgenomen":"door medewerker"}</span></div>
       ${f.status==="edit"
         ? `<label class="note" for="ft-${i}">Bevinding (in gewone taal)</label><textarea id="ft-${i}" data-text>${esc(f.text)}</textarea>
            <label class="note" for="fq-${i}">Letterlijk citaat uit de bron</label><textarea id="fq-${i}" data-quote>${esc(f.quote)}</textarea>`
@@ -279,20 +279,19 @@ PASSAGES:
 ${JSON.stringify(passages,null,1)}`;
   ctl = new AbortController();
   $("#draftAI").disabled = true; $("#stopAI").hidden = false;
-  $("#aiStatus").textContent = "Claude leest de passages… (dit kan tot een minuut duren)";
+  $("#aiStatus").textContent = "Het taalmodel leest de passages… (dit kan tot een minuut duren)";
   try{
     const out = await sample.json(prompt,{signal:ctl.signal, modelTier:"default"});
     const ids = new Set(passages.map(p=>p.id));
     findings = (out.bevindingen||[]).map((b,i)=>{
       const cites = (b.bronnen||[]).filter(id=>ids.has(id));
-      return {id:"a"+i+Date.now(), text:String(b.tekst||""), cites, quote:String(b.citaat||""), status: cites.length? "new":"edit", verified: cites.length? verifyQuote(String(b.citaat||""), cites):false, origin:"claude"};
+      return {id:"a"+i+Date.now(), text:String(b.tekst||""), cites, quote:String(b.citaat||""), status: cites.length? "new":"edit", verified: cites.length? verifyQuote(String(b.citaat||""), cites):false, origin:"model"};
     }).filter(f=>f.cites.length);
     const extra = (out.onzeker||[]).map(String);
-    $("#aiStatus").innerHTML = extra.length? "Claude meldt als onzeker: "+extra.map(esc).join(" · ") : "Klaar. Controleer elke bevinding tegen het bewijs.";
+    $("#aiStatus").innerHTML = extra.length? "Het model meldt als onzeker: "+extra.map(esc).join(" · ") : "Klaar. Controleer elke bevinding tegen het bewijs.";
   }catch(e){
-    const m = {cancelled:"Gestopt.", not_granted:"Claude is niet toegestaan in deze weergave. Gebruik de letterlijke kernzinnen.", rate_limited:"Te veel verzoeken. Probeer het over een minuut opnieuw.", invalid_json:"Het antwoord had geen bruikbaar formaat. Probeer opnieuw."};
-    $("#aiStatus").textContent = m[e&&e.code] || "Opstellen mislukt. Gebruik de letterlijke kernzinnen of probeer opnieuw.";
-    if (e && e.code==="not_granted") $("#draftAI").hidden = true;
+    const m = {cancelled:"Gestopt.", not_granted:"Er is nog geen taalmodel ingesteld. Gebruik de letterlijke kernzinnen of stel er een in.", rate_limited:"Te veel verzoeken of tegoed op. Probeer het over een minuut opnieuw.", invalid_json:"Het antwoord had geen bruikbaar formaat. Probeer opnieuw."};
+    $("#aiStatus").textContent = (e&&e.message) || m[e&&e.code] || "Opstellen mislukt. Gebruik de letterlijke kernzinnen of probeer opnieuw.";
   }finally{
     $("#draftAI").disabled = false; $("#stopAI").hidden = true; renderAll();
   }
@@ -452,20 +451,76 @@ function loadLocal(){
 function storeNote(){ $("#storeStatus").textContent = db? "Wijzigingen worden gedeeld met iedereen die deze pagina gebruikt." : "Wijzigingen worden alleen in deze browser bewaard."; }
 loadLocal(); buildIndex(); fillMuni(); storeNote(); runSearch();
 
-/* Eigen taalmodel via je eigen server (zie server.py). Zonder server valt deze knop weg. */
-if (window.LLM_ENDPOINT){
-  fetch(window.LLM_ENDPOINT,{method:"OPTIONS"}).then(r=>{ if(!r.ok) return;
-    sample = { json: async (prompt, opts={})=>{
-      let r;
-      try{ r = await fetch(window.LLM_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt}),signal:opts.signal}); }
-      catch(e){ throw {code: e && e.name==="AbortError" ? "cancelled" : "upstream_error"}; }
-      if (!r.ok) throw {code: r.status===429 ? "rate_limited" : "upstream_error"};
-      try{ return await r.json(); }catch(e){ throw {code:"invalid_json"}; }
-    }};
-    $("#draftAI").textContent = "Formuleer bevindingen met taalmodel";
-    $("#draftAI").hidden = false;
-  }).catch(()=>{});
+/* ---------- taalmodel via de eigen server (zie server.py) ---------- */
+const API = window.API;
+async function api(path, body){
+  const r = await fetch(API+path, body===undefined ? {} : {
+    method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  const data = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(data.error || "Er ging iets mis.");
+  return data;
 }
+function useOpenAI(model){
+  sample = { json: async (prompt, opts={})=>{
+    let r;
+    try{ r = await fetch(API+"/ask",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt}),signal:opts.signal}); }
+    catch(e){ throw {code: e && e.name==="AbortError" ? "cancelled" : "upstream_error"}; }
+    const data = await r.json().catch(()=>({}));
+    if (!r.ok) throw {code: r.status===429?"rate_limited":r.status===503?"not_granted":"upstream_error", message:data.error};
+    return data;
+  }};
+  $("#draftAI").hidden = false;
+  $("#draftAI").textContent = "Formuleer bevindingen met "+model;
+  $("#openSetup").textContent = model;
+}
+
+const dlg = $("#setup");
+function showStep(models, model, keyHint){
+  $("#stepKey").hidden = true; $("#stepModel").hidden = false;
+  $("#modelSel").innerHTML = models.map(m=>`<option ${m===model?"selected":""}>${esc(m)}</option>`).join("");
+  $("#keyNote").textContent = "Sleutel "+keyHint+" is bewaard. Kies een model uit uw eigen account.";
+}
+$("#saveKey").onclick = async ()=>{
+  const key = $("#apiKey").value.trim();
+  $("#setupStatus").textContent = "Sleutel controleren bij OpenAI…";
+  $("#saveKey").disabled = true;
+  try{
+    const out = await api("/key",{apiKey:key});
+    $("#apiKey").value = ""; $("#setupStatus").textContent = "";
+    showStep(out.models, out.model, out.keyHint);
+  }catch(e){ $("#setupStatus").textContent = e.message; }
+  finally{ $("#saveKey").disabled = false; }
+};
+$("#saveModel").onclick = async ()=>{
+  const model = $("#modelSel").value;
+  $("#modelStatus").textContent = "Opslaan…";
+  try{
+    await api("/model",{model});
+    useOpenAI(model); $("#modelStatus").textContent = ""; dlg.close();
+  }catch(e){ $("#modelStatus").textContent = e.message; }
+};
+$("#apiKey").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); $("#saveKey").click(); }});
+$("#changeKey").onclick = ()=>{ $("#stepModel").hidden = true; $("#stepKey").hidden = false; $("#apiKey").focus(); };
+$("#closeSetup").onclick = ()=>dlg.close();
+$("#openSetup").onclick = async ()=>{
+  dlg.showModal();
+  try{ const s = await api("/settings");
+    if (s.hasKey){ const m = await api("/models"); showStep(m.models, s.model, s.keyHint); }
+  }catch(e){ $("#setupStatus").textContent = e.message; }
+};
+
+(async ()=>{
+  if (!API) return;                      // via file:// geopend: alleen zoeken en bewijs
+  let s;
+  try{ s = await api("/settings"); }catch(e){ return; }
+  $("#openSetup").hidden = false;
+  if (s.configured){ useOpenAI(s.model); return; }
+  $("#openSetup").textContent = "Taalmodel instellen";
+  dlg.showModal();
+  if (s.hasKey){
+    try{ const m = await api("/models"); showStep(m.models, s.model, s.keyHint); }catch(e){}
+  } else $("#apiKey").focus();
+})();
 
 (async ()=>{
   if (!window.claude || !window.claude.use) return;
