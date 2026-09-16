@@ -1,6 +1,6 @@
 (function(){
 "use strict";
-const BASE = window.CORPUS;
+const BASE = window.CORPUS || {docs:[],chunks:[]};
 const $ = (s)=>document.querySelector(s);
 const esc = (s)=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const now = ()=>new Date().toISOString();
@@ -119,6 +119,7 @@ function search(q, inclHist, expansions=[]){
 /* ---------- rendering helpers ---------- */
 function statusTag(d){
   const s = d.status;
+  if (s==="te beoordelen") return '<span class="tag plain">Te beoordelen</span>';
   if (s==="historisch") return '<span class="tag bad">Historisch</span>';
   if (s==="ongedateerd") return '<span class="tag warn">Ongedateerd</span>';
   if (s==="richtlijn" || d.type==="richtlijn") return '<span class="tag warn">Richtlijn, geen regelgeving</span>';
@@ -201,6 +202,7 @@ function renderUncert(){
   for (const id of consider){
     const d = docById(id); if(!d) continue;
     if (d.status==="historisch") out.push(`<b>${esc(d.short)}</b> is historisch: geen bewijs van de huidige regels.`);
+    if (d.status==="te beoordelen") out.push(`<b>${esc(d.short)}</b> is nieuw geüpload en nog te beoordelen: gebruik het niet als bevestiging van de huidige regels.`);
     if (d.status==="ongedateerd") out.push(`<b>${esc(d.short)}</b> is ongedateerd: controleer of dit de geldende versie is.`);
     if (d.type==="richtlijn") out.push(`<b>${esc(d.short)}</b> is een richtlijn, geen regelgeving.`);
     if (!d.url) out.push(`Voor <b>${esc(d.short)}</b> ontbreekt een link naar het origineel.`);
@@ -461,7 +463,7 @@ function renderSources(){
       <td><input type="checkbox" aria-label="Actief" data-k="active" ${d.active===false?"":"checked"}></td>
       <td><b>${esc(d.title)}</b><div class="note">${esc(d.authority)}${d.file?" · "+esc(d.file):""}${d.rev?` · wijziging ${d.rev}`:""}</div></td>
       <td>${esc(d.level)}</td>
-      <td><select data-k="status">${["van kracht","richtlijn","ongedateerd","historisch"].map(s=>`<option ${s===d.status?"selected":""}>${s}</option>`).join("")}</select></td>
+      <td><select data-k="status">${["te beoordelen","van kracht","richtlijn","ongedateerd","historisch"].map(s=>`<option ${s===d.status?"selected":""}>${s}</option>`).join("")}</select></td>
       <td><input data-k="date" value="${esc(d.date)}"></td>
       <td><input data-k="url" value="${esc(d.url)}" placeholder="https://"></td>
       <td><textarea data-k="note">${esc(d.note)}</textarea></td>
@@ -505,6 +507,27 @@ $("#addSrc").onclick = async ()=>{
   $("#addStatus").textContent = `Toegevoegd: ${chunks.length} passages.`;
 };
 
+function fileData(file){
+  return new Promise((resolve,reject)=>{ const reader=new FileReader(); reader.onerror=()=>reject(new Error("Bestand kon niet worden gelezen.")); reader.onload=()=>resolve(String(reader.result).split(",",2)[1]); reader.readAsDataURL(file); });
+}
+$("#uploadSrc").onclick = async ()=>{
+  const files=[...$("#pdfFiles").files];
+  if(!files.length){ $("#uploadStatus").textContent="Kies eerst minstens één PDF."; return; }
+  if(!API){ $("#uploadStatus").textContent="Start Bronwijzer via server.py om PDF's te uploaden."; return; }
+  $("#uploadSrc").disabled=true;
+  let done=0;
+  try{
+    for(const file of files){
+      if(file.size>20*1024*1024) throw new Error(`${file.name} is groter dan 20 MB.`);
+      $("#uploadStatus").textContent=`Uploaden en indexeren: ${file.name} (${done+1}/${files.length})…`;
+      await api("/sources/upload",{file:{name:file.name,data:await fileData(file)},who:who()}); done++;
+    }
+    await loadSharedCollection(); buildIndex(); renderSources();
+    $("#pdfFiles").value=""; $("#uploadStatus").textContent=`${done} PDF${done===1?"":"'s"} geüpload en geïndexeerd.`;
+  }catch(e){ $("#uploadStatus").textContent=`Na ${done} bestand(en): ${e.message||"upload mislukt."}`; }
+  finally{ $("#uploadSrc").disabled=false; }
+};
+
 /* ---------- tabs ---------- */
 document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav.tabs button").forEach(x=>x.setAttribute("aria-selected", x===b));
@@ -517,14 +540,17 @@ document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>{
 const store = {
   mode:"local",
   async addAnswer(e){
+    if (API){ await api("/answers",{entry:e}); await loadSharedCollection(); return; }
     if (db){ try{ await db.collection("answers").add(e); return; }catch(err){ $("#saveStatus").textContent="Opslaan in de gedeelde opslag lukte niet; lokaal bewaard."; } }
     answers.unshift(e); LS.set("bw.answers",answers.slice(0,100)); renderLog();
   },
   async saveOverride(id, patch, log){
+    if (API){ await api("/sources/override",{id,patch,log}); await loadSharedCollection(); return; }
     if (db){ try{ await db.doc("overrides/"+id).set(patch); await db.collection("sourcelog").add(log); return; }catch(err){ $("#storeStatus").textContent="Opslaan in de gedeelde opslag lukte niet; lokaal bewaard."; } }
     LS.set("bw.overrides",overrides); srcLog.unshift(log); LS.set("bw.srclog",srcLog.slice(0,200)); renderLog();
   },
   async addSource(src, log){
+    if (API){ await api("/sources/text",{source:src,log}); await loadSharedCollection(); buildIndex(); renderSources(); return; }
     if (db){ try{ await db.doc("sources/"+src.meta.id).set(src); await db.collection("sourcelog").add(log); return; }catch(err){ $("#addStatus").textContent="Opslaan in de gedeelde opslag lukte niet; lokaal bewaard."; } }
     added.push(src); LS.set("bw.added",added); srcLog.unshift(log); LS.set("bw.srclog",srcLog.slice(0,200));
     buildIndex(); renderSources();
@@ -533,7 +559,14 @@ const store = {
 function loadLocal(){
   overrides = LS.get("bw.overrides",{}); added = LS.get("bw.added",[]); answers = LS.get("bw.answers",[]); srcLog = LS.get("bw.srclog",[]);
 }
-function storeNote(){ $("#storeStatus").textContent = db? "Wijzigingen worden gedeeld met iedereen die deze pagina gebruikt." : "Wijzigingen worden alleen in deze browser bewaard."; }
+async function loadSharedCollection(){
+  if(!API) return;
+  const data=await api("/collection");
+  added=Array.isArray(data.sources)?data.sources:[];
+  answers=Array.isArray(data.answers)?data.answers:[];
+  srcLog=Array.isArray(data.sourceLog)?data.sourceLog:[];
+}
+function storeNote(){ $("#storeStatus").textContent = window.API? "Bronnen en logboek worden gedeeld via deze Bronwijzer-server." : db? "Wijzigingen worden gedeeld met iedereen die deze pagina gebruikt." : "Wijzigingen worden alleen in deze browser bewaard."; }
 loadLocal(); buildIndex(); storeNote(); runSearch();
 
 /* ---------- taalmodel via de eigen server (zie server.py) ---------- */
@@ -545,6 +578,11 @@ async function api(path, body){
   if (!r.ok) throw new Error(data.error || "Er ging iets mis.");
   return data;
 }
+(async ()=>{
+  if(!API) return;
+  try{ await loadSharedCollection(); buildIndex(); renderAll(); }
+  catch(e){ $("#storeStatus").textContent="De gedeelde collectie kon niet worden geladen: "+e.message; }
+})();
 function useOpenAI(model){
   sample = { json: async (prompt, opts={})=>{
     let r;

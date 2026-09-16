@@ -108,8 +108,14 @@
     <div class="tablewrap"><table id="srcTable"></table></div>
   </div>
   <div class="panel big">
-    <h2>Bron toevoegen</h2>
-    <p class="sub">Plak de tekst van een reglement of richtlijn. Artikels en paragrafen (§) worden automatisch herkend. Controleer daarna de passages via een zoekopdracht.</p>
+    <h2>PDF's uploaden</h2>
+    <p class="sub">Kies één of meer doorzoekbare PDF's. Bronwijzer bewaart de originele bestanden en indexeert hun tekst op de server. Nieuwe bronnen zijn altijd “te beoordelen”: controleer daarna status, datum en notitie in de tabel hierboven.</p>
+    <label class="upload" for="pdfFiles">PDF-bestanden<input id="pdfFiles" type="file" accept="application/pdf,.pdf" multiple></label>
+    <div class="row"><button class="btn" id="uploadSrc" type="button">Geselecteerde PDF's uploaden</button><span class="status" id="uploadStatus" aria-live="polite"></span></div>
+  </div>
+  <div class="panel big">
+    <h2>Tekstbron toevoegen</h2>
+    <p class="sub">Voor uitzonderingen kunt u ook platte tekst invoeren. Artikels en paragrafen (§) worden automatisch herkend.</p>
     <div class="form2">
       <label>Titel<input id="nTitle"></label>
       <label>Uitgever<input id="nAuth"></label>

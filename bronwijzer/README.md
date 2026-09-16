@@ -1,6 +1,6 @@
 # Bronwijzer lokale economie (PROV-AI, challenge 2)
 
-Back-office tool voor medewerkers lokale economie: zoekt letterlijke passages in reglementen,
+Back-office tool voor medewerkers lokale economie: medewerkers uploaden zelf de PDF-bronnen; de tool zoekt daarna letterlijke passages in reglementen,
 toont status/niveau/pagina, laat de medewerker bevindingen bevestigen en maakt een conceptantwoord
 (zonder verzendknop).
 
@@ -42,12 +42,30 @@ Wijzigingen en logboek worden in je browser bewaard (localStorage).
 | `index.html` | Opmaak van de pagina |
 | `style.css` | Kleuren (tokens bovenaan), licht/donker |
 | `app.js` | Lokale BM25-zoeking, begrensde AI-zoektermen, bewijs, bevindingen, citaatcontrole, concept, bronbeheer, logboek |
-| `corpus.js` | Passages + documentmetadata (gegenereerd) |
-| `extract_corpus.py` | Maakt `corpus.js` uit de PDF's |
-| `server.py` | Lokale server, sleutelbeheer en doorgeefluik naar de OpenAI API |
+| `corpus.js` | Lege startcollectie: geen bronnen zijn vooringeladen |
+| `extract_corpus.py` | Ontwikkelhulpmiddel om een oude corpus-export te maken |
+| `server.py` | Lokale server, sleutelbeheer, PDF-indexering, gedeelde collectie/logboek en doorgeefluik naar de OpenAI API |
+| `data/` | Geüploade PDF's en gedeelde collectie/logboek (wordt aangemaakt; staat in `.gitignore`) |
 | `settings.json` | API-sleutel en modelkeuze (wordt bij de eerste start gemaakt, niet gecommit) |
 
-## Corpus opnieuw maken
+## Bronnen uploaden
+
+Open **Bronnen beheren**, kies één of meer doorzoekbare PDF's en klik
+**Geselecteerde PDF's uploaden**. De server bewaart de originelen onder
+`data/uploads/`, extraheert per pagina tekst met `pypdf` en bewaart passages,
+bronwijzigingen en goedgekeurde antwoorden in `data/collection.json`. De
+collectie start altijd leeg; de starter-PDF's zijn niet vooringeladen.
+
+Installeer eenmalig de PDF-lezer:
+
+```bash
+pip install -r requirements.txt
+```
+
+Een nieuwe upload krijgt bewust de status **te beoordelen**. Controleer die
+broninformatie vóór ze als geldende regelgeving wordt gebruikt.
+
+## Corpus exporteren (alleen voor ontwikkelaars)
 
 Vereist `pdftotext`/`pdfinfo` (poppler: `brew install poppler` of `apt install poppler-utils`).
 ```bash
@@ -68,7 +86,5 @@ Nieuw document? Voeg een regel toe aan `DOCS` en draai het script opnieuw.
 ## Bekende beperkingen
 
 - Zoeken op trefwoorden, geen embeddings.
-- Alleen de twee Schoten-marktdocumenten hebben een link naar het origineel.
-- Koninklijk besluit 2006: alleen de Nederlandse kolom, automatisch gesplitst.
-- Logboek en bronwijzigingen staan lokaal in de browser (in de claude.ai-versie: gedeeld).
-- Het marktplan en de quotalijst (bijlagen marktreglement) ontbreken.
+- Zonder server blijven handmatige tekstbronnen en het logboek lokaal in de browser. Met `server.py` zijn uploads, bronwijzigingen en het logboek gedeeld voor iedereen die dezelfde server gebruikt.
+- Het marktplan en de quotalijst kunnen door medewerkers worden geüpload wanneer die beschikbaar zijn.

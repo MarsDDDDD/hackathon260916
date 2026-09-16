@@ -2,3 +2,4 @@
 .env.*
 node_modules/
 bronwijzer/settings.json
+bronwijzer/data/
