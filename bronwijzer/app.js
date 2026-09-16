@@ -509,8 +509,8 @@ function sourceChangeDescription(field, before, after){
   return "De brongegevens zijn aangepast.";
 }
 function renderSources(){
-  const ds = docs();
-  $("#srcTable").innerHTML = `<tr><th>Actief</th><th>Document</th><th>Niveau</th><th>Historisch</th><th>Status</th><th>Datum / versie</th><th>Link naar origineel</th><th>Opmerking</th><th>Passages</th></tr>` +
+  const ds = docs(), removableIds = new Set(added.map(source=>source.meta.id));
+  $("#srcTable").innerHTML = `<tr><th>Actief</th><th>Document</th><th>Niveau</th><th>Historisch</th><th>Status</th><th>Datum / versie</th><th>Link naar origineel</th><th>Opmerking</th><th>Passages</th><th>Actie</th></tr>` +
     ds.map(d=>`<tr data-doc="${esc(d.id)}">
       <td><input type="checkbox" aria-label="Actief" data-k="active" ${d.active===false?"":"checked"}></td>
       <td><b>${esc(d.title)}</b><div class="note">${esc(d.authority)}${d.file?" · "+esc(d.file):""}${d.rev?` · wijziging ${d.rev}`:""}</div></td>
@@ -520,7 +520,8 @@ function renderSources(){
       <td><input data-k="date" value="${esc(d.date)}"></td>
       <td><input data-k="url" value="${esc(d.url)}" placeholder="https://"></td>
       <td><textarea data-k="note">${esc(d.note)}</textarea></td>
-      <td>${allChunks().filter(c=>c.doc===d.id).length}</td></tr>`).join("");
+      <td>${allChunks().filter(c=>c.doc===d.id).length}</td>
+      <td>${removableIds.has(d.id) ? `<button class="btn danger small" type="button" data-remove-source="${esc(d.id)}">Verwijderen</button>` : '<span class="note">Vooringeladen bron</span>'}</td></tr>`).join("");
 }
 $("#srcTable").addEventListener("change", async e=>{
   const tr = e.target.closest("tr[data-doc]"); const k = e.target.dataset.k; if(!tr||!k) return;
@@ -532,6 +533,23 @@ $("#srcTable").addEventListener("change", async e=>{
   overrides[id] = patch;
   await store.saveOverride(id, patch, {ts:now(), who:who(), doc:d.short||d.title, change:sourceChangeDescription(k, before, val)});
   buildIndex(); renderSources(); if (results.length) runSearch();
+});
+$("#srcTable").addEventListener("click", async e=>{
+  const button = e.target.closest("[data-remove-source]");
+  if (!button) return;
+  const id = button.dataset.removeSource, d = docById(id);
+  if (!d) return;
+  if (!confirm(`Weet u zeker dat u “${d.title}” wilt verwijderen? De bron en de passages worden verwijderd. Bestaande logboekitems blijven bewaard.`)) return;
+  button.disabled = true;
+  try{
+    await store.removeSource(id, {ts:now(), who:who(), doc:d.short||d.title, change:"De bron is verwijderd."});
+    buildIndex(); renderSources();
+    if (results.length) runSearch(); else renderAll();
+    $("#storeStatus").textContent = `“${d.title}” is verwijderd.`;
+  }catch(error){
+    button.disabled = false;
+    $("#storeStatus").textContent = `De bron kon niet worden verwijderd: ${error.message || "onbekende fout"}`;
+  }
 });
 function chunkText(docId, text){
   const lines = text.split(/\r?\n/); const out=[]; let art="", par="", buf=[];
@@ -608,6 +626,17 @@ const store = {
     if (db){ try{ await db.doc("sources/"+src.meta.id).set(src); await db.collection("sourcelog").add(log); return; }catch(err){ $("#addStatus").textContent="Opslaan in de gedeelde opslag lukte niet; lokaal bewaard."; } }
     added.push(src); LS.set("bw.added",added); srcLog.unshift(log); LS.set("bw.srclog",srcLog.slice(0,200));
     buildIndex(); renderSources();
+  },
+  async removeSource(id, log){
+    if (API){ await api("/sources/remove",{id,log}); await loadSharedCollection(); return; }
+    if (db){
+      try{ await db.doc("sources/"+id).delete(); await db.collection("sourcelog").add(log); return; }
+      catch(err){ $("#storeStatus").textContent="Verwijderen uit de gedeelde opslag lukte niet."; throw err; }
+    }
+    added = added.filter(source=>source.meta.id!==id);
+    delete overrides[id];
+    LS.set("bw.added",added); LS.set("bw.overrides",overrides);
+    srcLog.unshift(log); LS.set("bw.srclog",srcLog.slice(0,200)); renderLog();
   }
 };
 function loadLocal(){

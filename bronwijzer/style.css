@@ -39,6 +39,7 @@ main{max-width:1320px;margin:0 auto;padding:20px 24px 60px}
 :root[data-theme="dark"] .btn{color:#fff}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .btn{color:#fff}}
 .btn.ghost{background:transparent;color:var(--teal)}
+.btn.danger{border-color:var(--red);background:transparent;color:var(--red)}
 .btn.small{padding:4px 10px;font-size:.85rem;font-weight:600}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:20px;align-items:start}

@@ -152,6 +152,7 @@ class H(http.server.SimpleHTTPRequestHandler):
         if self.path == "/api/sources/upload": return self.upload_source()
         if self.path == "/api/sources/text": return self.add_text_source()
         if self.path == "/api/sources/override": return self.override_source()
+        if self.path == "/api/sources/remove": return self.remove_source()
         if self.path == "/api/answers": return self.add_answer()
         self.send_response(404); self.end_headers()
 
@@ -210,6 +211,27 @@ class H(http.server.SimpleHTTPRequestHandler):
         for source in data["sources"]:
             if source.get("meta", {}).get("id") == doc_id:
                 source["meta"].update({key: value for key, value in patch.items() if key in allowed}); data["sourceLog"].insert(0, (body or {}).get("log") or {}); save_collection(data); return self.reply(200, {"source": source})
+        return self.reply(404, {"error": "Bron niet gevonden."})
+
+    def remove_source(self):
+        body = self.read_json(); doc_id = (body or {}).get("id")
+        if not isinstance(doc_id, str) or not doc_id: return self.reply(400, {"error": "Ongeldige bron."})
+        data = load_collection()
+        for index, source in enumerate(data["sources"]):
+            if source.get("meta", {}).get("id") != doc_id: continue
+            removed = data["sources"].pop(index)
+            data["sourceLog"].insert(0, (body or {}).get("log") or {})
+            save_collection(data)
+            url = removed.get("meta", {}).get("url", "")
+            prefix = "/data/uploads/"
+            if isinstance(url, str) and url.startswith(prefix):
+                filename = safe_filename(urllib.parse.unquote(url[len(prefix):]))
+                path = os.path.abspath(os.path.join(UPLOAD_DIR, filename))
+                if os.path.commonpath([os.path.abspath(UPLOAD_DIR), path]) == os.path.abspath(UPLOAD_DIR):
+                    try: os.remove(path)
+                    except FileNotFoundError: pass
+                    except OSError as error: print("Uploadbestand kon niet worden verwijderd:", error)
+            return self.reply(200, {"ok": True})
         return self.reply(404, {"error": "Bron niet gevonden."})
 
     def add_answer(self):
