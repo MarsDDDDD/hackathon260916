@@ -2,17 +2,20 @@
   --paper:#F3F5F4; --sheet:#FFFFFF; --ink:#1F2A36; --muted:#5B6773; --line:#D5DBDF;
   --teal:#1E6B5C; --teal-soft:#E1F0EC; --amber:#9A6212; --amber-soft:#FBF0DC;
   --red:#A23B3B; --red-soft:#F8E4E2; --link:#2457A6; --mark:#FFE9A8; --quote:#C9F0DD;
+  --appelblauwzeegroen:#0E6E72;
   --sans:"Public Sans",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
   --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --paper:#141A20; --sheet:#1C242C; --ink:#E4E9ED; --muted:#9AA6B1; --line:#33404B;
   --teal:#5CC2A8; --teal-soft:#16332D; --amber:#E3B062; --amber-soft:#3A2D16;
-  --red:#E88A84; --red-soft:#3B1F1E; --link:#8FB5F0; --mark:#5A4A16; --quote:#1D4A38;}}
+  --red:#E88A84; --red-soft:#3B1F1E; --link:#8FB5F0; --mark:#5A4A16; --quote:#1D4A38;
+  --appelblauwzeegroen:#6FD6CE;}}
 :root[data-theme="dark"]{
   --paper:#141A20; --sheet:#1C242C; --ink:#E4E9ED; --muted:#9AA6B1; --line:#33404B;
   --teal:#5CC2A8; --teal-soft:#16332D; --amber:#E3B062; --amber-soft:#3A2D16;
-  --red:#E88A84; --red-soft:#3B1F1E; --link:#8FB5F0; --mark:#5A4A16; --quote:#1D4A38;}
+  --red:#E88A84; --red-soft:#3B1F1E; --link:#8FB5F0; --mark:#5A4A16; --quote:#1D4A38;
+  --appelblauwzeegroen:#6FD6CE;}
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 var(--sans)}
 a{color:var(--link)}
@@ -36,8 +39,9 @@ main{max-width:1320px;margin:0 auto;padding:20px 24px 60px}
 .scope{font-size:.9rem;color:var(--muted)}
 .scope{max-width:100%}.scope select{max-width:100%;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--paper)}
 .btn{border:1px solid var(--teal);background:var(--teal);color:#fff;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer}
-:root[data-theme="dark"] .btn{color:#0d1a16}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .btn{color:#0d1a16}}
+/* Donkere tekst hoort alleen op de gevulde knop; een ghost-knop is transparant. */
+:root[data-theme="dark"] .btn:not(.ghost){color:#0d1a16}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .btn:not(.ghost){color:#0d1a16}}
 .btn.ghost{background:transparent;color:var(--teal)}
 .btn.small{padding:4px 10px;font-size:.85rem;font-weight:600}
 .btn:disabled{opacity:.5;cursor:not-allowed}
@@ -116,5 +120,27 @@ dialog#setup .note{margin:8px 0 0}
 dialog#setup code{background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:0 4px;font-size:.85em}
 dialog#setup .row:last-child{margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
 .who #openSetup{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Tekst op een grijze achtergrond (--paper) krijgt appelblauwzeegroen.
+   Staat achteraan zodat het wint van eerdere color-declaraties op dezelfde elementen. */
+.who input,
+.ask textarea,
+.chips button,
+.scope select,
+.find textarea,
+.draft textarea,
+.search-plan code,
+td input, td select, td textarea,
+.form2 input, .form2 select,
+.big textarea,
+.log pre,
+dialog#setup input, dialog#setup select, dialog#setup pre, dialog#setup code,
+nav.tabs button[aria-selected="true"]{color:var(--appelblauwzeegroen)}
+.ask textarea::placeholder,
+.find textarea::placeholder,
+.draft textarea::placeholder,
+.big textarea::placeholder,
+.who input::placeholder,
+dialog#setup input::placeholder{color:var(--appelblauwzeegroen);opacity:.6}
 
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
